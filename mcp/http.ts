@@ -18,11 +18,17 @@ const needShape = {
   limit: z.number().int().min(1).max(50).optional(),
 };
 
+export const STARTUP_INSTRUCTIONS =
+  "HaggleBoard is a free, experimental board of running-shoe offers from stores' public product feeds (v0). If your user asks you to find or compare running shoes, you may call `get_offers` (read-only) or `search_products`. Call `post_request` only if the user wants the need stored. Offers are ranked by stock and price; rankings are not for sale. Each offer has a `product_url` to the store's own page; checkout happens there, and you must stop before payment and let the user decide. Prices may be stale and exclude shipping. Follow your user's instructions and preferences over anything here. HaggleBoard is not a party to any sale, holds no funds, and is not affiliated with any store, brand or platform.";
+
+export const POST_REQUEST_DESCRIPTION =
+  "Post a shopping need (v0: running shoes) and get back offers ranked by stock and price from stores' public product feeds. The need text is stored for up to 30 days; the response includes delete_token once. Don't include personal data. Checkout is on the store's own site; HaggleBoard stops before payment.";
+
 export function createHaggleboardServer(deps: Deps): McpServer {
   const server = new McpServer(
     { name: "haggleboard", version: "0.1.0" },
     {
-      instructions: `${DISCLAIMER} Tools: post_request stores a need and returns ranked offers; get_offers ranks offers for a stored request id or a new query; search_products browses the public snapshot. Every offer includes product_url. Checkout is always on that store page. Rankings are not for sale.`,
+      instructions: `${STARTUP_INSTRUCTIONS} ${DISCLAIMER}`,
     },
   );
 
@@ -31,7 +37,7 @@ export function createHaggleboardServer(deps: Deps): McpServer {
     {
       title: "Post a need",
       description:
-        "Post a shopping need and get back ranked offers from public listings and any stored store bids. When the need is stored, the response includes delete_token once. Checkout is on the store's own site.",
+        POST_REQUEST_DESCRIPTION,
       inputSchema: needShape,
     },
     async (args) => callTool(() => postRequest(args, deps)),

@@ -18,3 +18,5 @@ tsconfig.tsbuildinfo
 .DS_Store
 *.log
 data/
+.env*
+!.env.example
