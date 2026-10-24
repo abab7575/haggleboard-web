@@ -339,3 +339,9 @@ footer {
   .top, .form-row, .board-head { flex-direction: column; align-items: flex-start; }
   h1 { font-size: 2.4rem; }
 }
+
+.legal li { margin-bottom: 0.6rem; }
+form fieldset { border: 0; padding: 0; margin: 0; display: grid; gap: 0.8rem; max-width: 32rem; }
+form label { display: grid; gap: 0.3rem; font-weight: 600; }
+form input, form textarea { font: inherit; padding: 0.6rem; border: 1px solid var(--line); border-radius: 8px; background: #f4efe7; }
+fieldset[disabled] button { opacity: 0.55; cursor: not-allowed; }

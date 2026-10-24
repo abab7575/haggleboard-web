@@ -3,7 +3,7 @@
   "version": "0.1.0",
   "private": true,
   "description": "Free, open request-and-offer board for AI shopping agents.",
-  "license": "MIT",
+  "license": "Apache-2.0",
   "type": "module",
   "engines": {
     "node": ">=22"
@@ -16,7 +16,8 @@
     "typecheck": "tsc --noEmit",
     "crawl": "tsx feeds/cli.ts",
     "issue-key": "tsx scripts/issue-key.ts",
-    "scan": "node scripts/scan-secrets.mjs"
+    "scan": "node scripts/scan-secrets.mjs",
+    "purge": "tsx scripts/purge-expired.ts"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.32.1",

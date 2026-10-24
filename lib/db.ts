@@ -58,6 +58,8 @@ export type Store = {
   countReporters: (requestId: string) => Promise<number>;
   hasReport: (requestId: string, ipHash: string) => Promise<boolean>;
   bumpRate: (ipHash: string, windowKey: string) => Promise<number>;
+  /** Deletes need text, reports and hashed-IP rate counters older than RETENTION_DAYS. */
+  purgeExpired: (now?: number) => Promise<void>;
   saveReport: (row: ReportRow) => Promise<void>;
   listReports: () => Promise<ReportRow[]>;
   upsertVariants: (rows: VariantRow[]) => Promise<void>;
@@ -118,6 +120,21 @@ const STATEMENTS = [
     PRIMARY KEY (ip_hash, window_key)
   )`,
 ];
+
+export const RETENTION_DAYS = 30;
+const DAY = 86_400_000;
+/** Retention rule (privacy page): need text, hidden needs, reports and hashed IPs go after 30 days. */
+export function purgePlan(now = Date.now()): Array<[string, unknown[]]> {
+  const cutoff = new Date(now - RETENTION_DAYS * DAY).toISOString();
+  return [
+    ["DELETE FROM reports WHERE created_at < ?", [cutoff]],
+    ["DELETE FROM reports WHERE request_id IN (SELECT id FROM requests WHERE created_at < ?)", [cutoff]],
+    ["DELETE FROM bids WHERE request_id IN (SELECT id FROM requests WHERE created_at < ?)", [cutoff]],
+    ["DELETE FROM requests WHERE created_at < ?", [cutoff]],
+    ["DELETE FROM rate_hits WHERE window_key LIKE 'd:%' AND CAST(substr(window_key, 3) AS BIGINT) < ?", [Math.floor(now / DAY) - RETENTION_DAYS]],
+    ["DELETE FROM rate_hits WHERE window_key LIKE 'm:%' AND CAST(substr(window_key, 3) AS BIGINT) < ?", [Math.floor((now - RETENTION_DAYS * DAY) / 60_000)]],
+  ];
+}
 
 const UPSERT_VARIANT = `INSERT INTO variants (
   id, store_domain, brand, model, gender, size, price_cents, currency, available, variant_json, observed_at
@@ -230,6 +247,7 @@ export function unavailableStore(): Store {
     async latestObserved() {
       return null;
     },
+    async purgeExpired() {},
     async close() {},
   };
 }
@@ -268,7 +286,11 @@ export async function openSqlite(filename: string): Promise<Store> {
 
   return {
     kind: "sqlite",
+    async purgeExpired(now) {
+      for (const [query, params] of purgePlan(now)) run(query, params);
+    },
     async saveRequest(row) {
+      for (const [query, params] of purgePlan()) run(query, params);
       run(UPSERT_REQUEST, [row.id, row.need_json, row.created_at, row.delete_token_hmac]);
     },
     async getRequest(id) {
@@ -355,7 +377,11 @@ async function openPostgres(url: string): Promise<Store> {
 
   return {
     kind: "postgres",
+    async purgeExpired(now) {
+      for (const [query, params] of purgePlan(now)) await q(query, params);
+    },
     async saveRequest(row) {
+      for (const [query, params] of purgePlan()) await q(query, params);
       await q(UPSERT_REQUEST, [row.id, row.need_json, row.created_at, row.delete_token_hmac]);
     },
     async getRequest(id) {

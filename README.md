@@ -137,3 +137,9 @@ The domain, DNS, and any spend alert are outside this repo.
 ## License
 
 Code is MIT. The files in `spec/` are CC-BY-4.0.
+
+## License
+
+Code and schemas: Apache-2.0. Spec text: CC-BY-4.0. Patent non-assert: spec/PATENTS.md. See `NOTICE`.
+
+Licensing is pending final confirmation.

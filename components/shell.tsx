@@ -1,5 +1,5 @@
 import type { ReactNode } from "react";
-import { DISCLAIMER, PRICE_NOTE, REMOVAL_EMAIL, REMOVAL_LINE, SNAPSHOT_NOTE } from "../lib/copy";
+import { CONTACT_EMAIL, DISCLAIMER, PRICE_NOTE, SNAPSHOT_NOTE } from "../lib/copy";
 
 export function Shell({ children }: { children: ReactNode }) {
   return (
@@ -27,8 +27,10 @@ export function Shell({ children }: { children: ReactNode }) {
           {SNAPSHOT_NOTE} {PRICE_NOTE}
         </p>
         <p>
-          {REMOVAL_LINE.split(REMOVAL_EMAIL)[0]}
-          <a href={`mailto:${REMOVAL_EMAIL}`}>{REMOVAL_EMAIL}</a>
+          Store owner? Ask us to remove your listings: <a href={`mailto:${CONTACT_EMAIL}`}>{CONTACT_EMAIL}</a>
+        </p>
+        <p>
+          <a href="/terms">Terms</a> · <a href="/privacy">Privacy</a> · <a href="/contact">Contact</a>
         </p>
       </footer>
     </div>

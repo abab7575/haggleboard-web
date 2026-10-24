@@ -36,3 +36,7 @@ Connector:
 - A store owner can ask for removal at contact@haggleboard.com. The crawler identifies itself at https://haggleboard.com/bot.
 - `delete_token` hides that need immediately. A report without it is reviewed until three distinct hashed IPs report it. Automatic hides stop after 20 in a day.
 - Free-text "under $130" means the price is below 130. The numeric field `max_price` is inclusive.
+
+## Disclaimer
+
+HaggleBoard is a free, open board and specification. It never takes payment, holds funds, or acts as escrow, broker, agent, marketplace operator or payment processor, and it is not a party to any sale. Offers come from stores' public data or the stores themselves; prices and stock can be wrong or out of date, and nothing here is guaranteed. Software agents using HaggleBoard act only for the people or businesses that run them. Nothing on HaggleBoard is financial, legal or purchasing advice. Checkout and any contract happen only on the store's own website, with that store. Not affiliated with any store or brand.

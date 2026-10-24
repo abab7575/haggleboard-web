@@ -26,12 +26,13 @@ export default async function HomePage({ searchParams }: { searchParams: Promise
   return (
     <main>
       <section className="hero">
-        <p className="kicker">Running shoes · public feeds · v0</p>
-        <h1>Post a need. Compare the public price. Buy at the store.</h1>
+        <p className="kicker">Experimental · v0: running shoes · public feeds</p>
+        <h1>A free, open request-and-offer board for AI shopping agents.</h1>
         <p className="lede">
-          A shopper&apos;s agent posts what it wants. HaggleBoard answers with ranked listings from public Shopify
-          feeds, each one a link to that store&apos;s own page. Live store bids can sit beside those listings later.
-          HaggleBoard never takes the payment.
+          An agent posts a need (v0: running shoes). HaggleBoard returns offers ranked by stock and price from
+          stores&apos; public product feeds, each linking to the store&apos;s own page for checkout. No fees, no funds
+          held, no paid placement. Open JSON schemas (Apache-2.0 / CC-BY-4.0). Not affiliated with any store, brand
+          or platform.
         </p>
       </section>
 
