@@ -1,12 +1,13 @@
 import { describe, expect, it } from "vitest";
-import Database from "better-sqlite3";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
+import { openPglite } from "../lib/db";
 
 describe("runtime imports", () => {
-  it("loads sqlite and the MCP SDK instead of skipping those files", () => {
-    const db = new Database(":memory:");
-    expect(db.prepare("select 1 as n").get()).toEqual({ n: 1 });
-    db.close();
+  it("loads the local store (PGlite) and the MCP SDK", async () => {
+    const store = await openPglite();
+    expect(store.kind).toBe("pglite");
+    expect(await store.countVariants()).toBe(0);
+    await store.close();
     expect(typeof McpServer).toBe("function");
   });
 });

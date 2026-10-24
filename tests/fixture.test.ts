@@ -2,7 +2,7 @@ import { existsSync, readFileSync } from "node:fs";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
 import { readFixture } from "../lib/catalog";
-import { openSqlite } from "../lib/db";
+import { openPglite as openSqlite } from "../lib/db";
 import { getOffers, type Deps } from "../lib/service";
 import { handleMcpRequest } from "../mcp/http";
 import { USER_AGENT } from "../lib/copy";
@@ -50,7 +50,7 @@ describe("sample crawl fixture", () => {
     const fixture = readFixture(file);
     const shoe = fixture.variants.find((variant) => variant.category === "shoe" && variant.available && variant.brand && variant.size);
     expect(shoe).toBeTruthy();
-    const store = await openSqlite(":memory:");
+    const store = await openSqlite();
     const deps: Deps = { store, loadVariants: async () => fixture.variants };
     const result = await getOffers({ brand: shoe!.brand, model: shoe!.model, size: shoe!.size, gender: shoe!.gender === "unknown" ? undefined : shoe!.gender }, deps);
     expect(result.offers.some((offer) => offer.product_url === shoe!.product_url)).toBe(true);

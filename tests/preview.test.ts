@@ -3,7 +3,7 @@ import { describe, expect, it } from "vitest";
 import robots from "../app/robots";
 import { indexingAllowed, robotsDocument, rootMetadata } from "../lib/indexing";
 import { deleteTokenKey } from "../lib/keys";
-import { openSqlite } from "../lib/db";
+import { openPglite as openSqlite } from "../lib/db";
 import { rateSalt } from "../lib/rate-limit";
 import { postRequest, type Deps } from "../lib/service";
 import { assertVercelStartup } from "../lib/startup";
@@ -60,7 +60,7 @@ describe("delete token key", () => {
 
     const previous = process.env.DELETE_TOKEN_KEY;
     delete process.env.DELETE_TOKEN_KEY;
-    const store = await openSqlite(":memory:");
+    const store = await openSqlite();
     const deps: Deps = { store, loadVariants: async () => [] };
     try {
       await expect(postRequest({ text: "women's Brooks Ghost 16, size 8" }, deps)).rejects.toThrow(/DELETE_TOKEN_KEY/);

@@ -45,7 +45,7 @@ export type VariantRow = {
 };
 
 export type Store = {
-  kind: "sqlite" | "postgres" | "unavailable";
+  kind: "sqlite" | "postgres" | "pglite" | "unavailable";
   saveRequest: (row: RequestRow) => Promise<void>;
   getRequest: (id: string) => Promise<RequestRow | null>;
   listRequests: (limit: number) => Promise<RequestRow[]>;
@@ -257,11 +257,13 @@ export async function openStore(env: NodeJS.ProcessEnv = process.env): Promise<S
   try {
     if (url) {
       if (/^postgres(?:ql)?:\/\//i.test(url)) return await openPostgres(url);
+      if (url === "pglite://memory") return await openPglite();
+      if (url.startsWith("pglite://")) return await openPglite(url.slice("pglite://".length));
       if (url === ":memory:" || url.startsWith("file:")) return openSqlite(sqlitePath(url));
       throw new Error("DATABASE_URL must be a postgres connection string or a file: SQLite path");
     }
     if (env.VERCEL) return unavailableStore();
-    return openSqlite(path.join(process.cwd(), "data", "haggleboard.sqlite"));
+    return await openPglite(path.join(process.cwd(), "data", "pglite"));
   } catch (error) {
     if (error instanceof StoreUnavailableError) return unavailableStore();
     if (env.VERCEL) return unavailableStore();
@@ -359,24 +361,54 @@ export async function openSqlite(filename: string): Promise<Store> {
   };
 }
 
+type PgRunner = {
+  q: (query: string, params?: unknown[]) => Promise<Record<string, unknown>[]>;
+  tx: (fn: (run: (query: string, params: unknown[]) => Promise<unknown>) => Promise<void>) => Promise<void>;
+  end: () => Promise<void>;
+};
+
+async function migratePg(exec: (s: string) => Promise<unknown>) {
+  for (const statement of STATEMENTS) await exec(statement);
+  await exec("ALTER TABLE requests ADD COLUMN IF NOT EXISTS hidden_at TEXT");
+  await exec("ALTER TABLE requests ADD COLUMN IF NOT EXISTS hidden_by TEXT");
+  await exec("ALTER TABLE requests ADD COLUMN IF NOT EXISTS delete_token_hmac TEXT");
+}
+
 async function openPostgres(url: string): Promise<Store> {
   const postgres = (await import("postgres")).default;
   const local = /@(localhost|127\.0\.0\.1)(?::|\/|$)/.test(url);
-  const sql = postgres(url, {
-    max: 1,
-    ssl: local ? false : "require",
-    idle_timeout: 20,
-    connect_timeout: 15,
+  const sql = postgres(url, { max: 1, ssl: local ? false : "require", idle_timeout: 20, connect_timeout: 15 });
+  await migratePg((s) => sql.unsafe(s));
+  return pgStore("postgres", {
+    q: async (query, params = []) =>
+      (await sql.unsafe(sqlPlaceholders(query, "postgres"), params as never[])) as Record<string, unknown>[],
+    tx: async (fn) => {
+      await sql.begin(async (t) => fn((query, params) => t.unsafe(sqlPlaceholders(query, "postgres"), params as never[])));
+    },
+    end: () => sql.end({ timeout: 5 }),
   });
-  for (const statement of STATEMENTS) await sql.unsafe(statement);
-  await sql.unsafe("ALTER TABLE requests ADD COLUMN IF NOT EXISTS hidden_at TEXT");
-  await sql.unsafe("ALTER TABLE requests ADD COLUMN IF NOT EXISTS hidden_by TEXT");
-  await sql.unsafe("ALTER TABLE requests ADD COLUMN IF NOT EXISTS delete_token_hmac TEXT");
-  const q = async (query: string, params: unknown[] = []) =>
-    (await sql.unsafe(sqlPlaceholders(query, "postgres"), params as never[])) as Record<string, unknown>[];
+}
 
+/** Local dev/tests: embedded Postgres (WASM). Works where the better-sqlite3 native module crashes. */
+export async function openPglite(dataDir?: string): Promise<Store> {
+  const { PGlite } = await import("@electric-sql/pglite");
+  if (dataDir) mkdirSync(dataDir, { recursive: true });
+  const db = new PGlite(dataDir);
+  await migratePg((s) => db.exec(s));
+  const run = async (query: string, params: unknown[] = []) =>
+    (await db.query(sqlPlaceholders(query, "postgres"), params as never[])).rows as Record<string, unknown>[];
+  return pgStore("pglite", {
+    q: run,
+    tx: async (fn) => {
+      await db.transaction(async (t) => fn((query, params) => t.query(sqlPlaceholders(query, "postgres"), params as never[])));
+    },
+    end: () => db.close(),
+  });
+}
+
+function pgStore(kind: "postgres" | "pglite", { q, tx, end }: PgRunner): Store {
   return {
-    kind: "postgres",
+    kind,
     async purgeExpired(now) {
       for (const [query, params] of purgePlan(now)) await q(query, params);
     },
@@ -430,10 +462,8 @@ async function openPostgres(url: string): Promise<Store> {
     },
     async upsertVariants(rows) {
       if (rows.length === 0) return;
-      await sql.begin(async (tx) => {
-        for (const row of rows) {
-          await tx.unsafe(sqlPlaceholders(UPSERT_VARIANT, "postgres"), variantParams(row) as never[]);
-        }
+      await tx(async (run) => {
+        for (const row of rows) await run(UPSERT_VARIANT, variantParams(row));
       });
     },
     async listVariants() {
@@ -449,7 +479,7 @@ async function openPostgres(url: string): Promise<Store> {
       return typeof value === "string" ? value : null;
     },
     async close() {
-      await sql.end({ timeout: 5 });
+      await end();
     },
   };
 }

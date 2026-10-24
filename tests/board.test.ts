@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
 import { readFixture } from "../lib/catalog";
-import { openSqlite, sqlPlaceholders } from "../lib/db";
+import { openPglite as openSqlite, sqlPlaceholders } from "../lib/db";
 import { bidsEnabled } from "../lib/keys";
 import { clientIp, hashIp, takeRateLimit } from "../lib/rate-limit";
 import { readStoreKey } from "../lib/http";
@@ -121,7 +121,7 @@ describe("database and offers", () => {
     expect(sqlPlaceholders("SELECT * FROM t WHERE id = ? AND n = ?", "postgres")).toBe(
       "SELECT * FROM t WHERE id = $1 AND n = $2",
     );
-    const store = await openSqlite(":memory:");
+    const store = await openSqlite();
     const variants = readFixture(path.join(process.cwd(), "fixtures", "mini-catalog.json")).variants;
     const deps: Deps = { store, loadVariants: async () => variants };
     const posted = await postRequest({ text: "women's Brooks Ghost 16, size 8, under $130" }, deps);
@@ -254,7 +254,7 @@ describe("database and offers", () => {
 
 describe("reports", () => {
   it("does not remove a request after one report without the delete token", async () => {
-    const store = await openSqlite(":memory:");
+    const store = await openSqlite();
     const deps: Deps = { store, loadVariants: async () => [] };
     const posted = await postRequest({ text: "women's Brooks Ghost 16, size 8" }, deps);
     expect(posted.delete_token).toMatch(/^[A-Za-z0-9_-]{43}$/);
@@ -272,7 +272,7 @@ describe("reports", () => {
   });
 
   it("hides immediately with the delete token and leaves the daily auto-hide count unchanged", async () => {
-    const store = await openSqlite(":memory:");
+    const store = await openSqlite();
     const deps: Deps = { store, loadVariants: async () => [] };
     const posted = await postRequest({ text: "women's Brooks Ghost 16, size 8" }, deps);
     const hidden = await reportNeed(
@@ -287,7 +287,7 @@ describe("reports", () => {
   });
 
   it("hides after three distinct hashed IPs and stops auto-hides after 20 in a day", async () => {
-    const store = await openSqlite(":memory:");
+    const store = await openSqlite();
     const deps: Deps = { store, loadVariants: async () => [] };
     const now = Date.parse("2026-10-18T12:00:00.000Z");
     for (let i = 0; i < 20; i++) {
@@ -324,7 +324,7 @@ describe("bids flag", () => {
 
 describe("rate limit", () => {
   it("stores a hash in the database and returns retry-after after 10 writes in a minute", async () => {
-    const store = await openSqlite(":memory:");
+    const store = await openSqlite();
     const hashed = hashIp("203.0.113.8", "salt");
     expect(hashed).not.toContain("203.0.113.8");
     const now = 1_700_000_000_000;
@@ -356,7 +356,7 @@ describe("rate limit", () => {
 
 describe("mcp", () => {
   it("answers get_offers over streamable HTTP", async () => {
-    const store = await openSqlite(":memory:");
+    const store = await openSqlite();
     const variants: CatalogVariant[] = readFixture(path.join(process.cwd(), "fixtures", "mini-catalog.json")).variants;
     const deps: Deps = { store, loadVariants: async () => variants };
     const call = async (method: string, params: unknown, id: number) => {
@@ -395,7 +395,7 @@ describe("mcp", () => {
     const payload = JSON.parse(offers.body.result.content[0].text);
     expect(payload.offers[0].product_url).toBe("https://example-run.test/products/brooks-ghost-16?variant=1");
     expect(payload.offers[0].checkout).toBe("store_site");
-    expect(payload.disclaimer).toMatch(/not affiliated/);
+    expect(payload.disclaimer).toMatch(/not affiliated/i);
     await store.close();
   });
 });
