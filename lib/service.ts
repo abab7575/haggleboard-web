@@ -77,6 +77,16 @@ export async function defaultDeps(): Promise<Deps> {
   };
 }
 
+/** Demo/sandbox sellers (.example domains, or flagged demo) never appear in live results. */
+export function isDemoSeller(v: { store_domain?: string; demo?: unknown }): boolean {
+  const d = (v.store_domain ?? "").toLowerCase().replace(/\.$/, "");
+  return v.demo === true || d === "example" || d.endsWith(".example");
+}
+
+async function liveVariants(deps: Deps) {
+  return (await deps.loadVariants()).filter((v) => !isDemoSeller(v as { store_domain?: string; demo?: unknown }));
+}
+
 export async function postRequest(input: unknown, deps: Deps) {
   const body = parseNeedBody(input);
   const need = parseNeed(body);
@@ -153,7 +163,7 @@ export async function searchProducts(input: unknown, deps: Deps) {
     size: parsed.data.size,
   });
   assertSearchable(need);
-  const matches = matchVariants(await deps.loadVariants(), need, true);
+  const matches = matchVariants(await liveVariants(deps), need, true);
   const groups = new Map<string, CatalogVariant[]>();
   for (const variant of matches) {
     const key = `${variant.store_domain}:${variant.handle}`;
@@ -344,14 +354,14 @@ export async function catalogSummary(deps: Deps) {
 }
 
 async function collectOffers(need: ResolvedNeed, requestId: string | null, deps: Deps, limit: number) {
-  const variants = await deps.loadVariants();
+  const variants = await liveVariants(deps);
   const available = matchVariants(variants, need, true);
   const includingSoldOut = matchVariants(variants, need, false);
   const offers = available.map((variant) => toPublicOffer(variant, "feed"));
   const bids = await deps.store.listBids();
   for (const row of bids) {
     const stored = JSON.parse(row.bid_json) as StoredBid;
-    if (stored.verified !== true) continue;
+    if (stored.verified !== true || isDemoSeller(stored)) continue;
     if (requestId && row.request_id === requestId) {
       offers.push(bidToOffer(stored, row.created_at));
       continue;

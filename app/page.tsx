@@ -45,7 +45,7 @@ export default async function HomePage({ searchParams }: { searchParams: Promise
           ? "Development snapshot, not a live crawl."
           : `Public snapshot: ${summary.variants.toLocaleString("en")} variants across ${summary.stores} stores${
               summary.crawled_at ? `, observed ${summary.crawled_at.slice(0, 10)}` : ""
-            }. Source: ${summary.source}.`}
+            }.`}
       </p>
 
       <div className="board-head">
