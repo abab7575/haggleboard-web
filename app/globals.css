@@ -1,0 +1,341 @@
+:root {
+  --paper: #f3eadc;
+  --paper-deep: #e7dccb;
+  --card: #fffaf3;
+  --ink: #241910;
+  --muted: #6d6256;
+  --line: #ddcfbb;
+  --clay: #b8432f;
+  --clay-deep: #8d3222;
+  --pine: #1d5c45;
+  --shadow: 0 18px 40px rgba(60, 36, 16, 0.08);
+  color-scheme: light;
+}
+
+* { box-sizing: border-box; }
+
+html { scroll-behavior: smooth; }
+
+body {
+  margin: 0;
+  min-height: 100vh;
+  color: var(--ink);
+  background:
+    radial-gradient(1200px 500px at 10% -10%, rgba(184, 67, 47, 0.08), transparent 50%),
+    linear-gradient(180deg, #f7f1e6 0%, var(--paper) 280px);
+  font-family: var(--font-sans), "Avenir Next", "Segoe UI", sans-serif;
+  font-size: 1.05rem;
+  line-height: 1.5;
+}
+
+a { color: inherit; }
+
+::selection { background: #f0c2b6; }
+
+.page {
+  width: min(1080px, calc(100% - 2rem));
+  margin: 0 auto;
+  padding-bottom: 4rem;
+}
+
+.top {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 1rem;
+  padding: 1.25rem 0 1rem;
+  border-bottom: 1px solid var(--ink);
+}
+
+.brand {
+  display: flex;
+  gap: 0.8rem;
+  align-items: center;
+  text-decoration: none;
+}
+
+.seal {
+  width: 2.6rem;
+  height: 2.6rem;
+  border-radius: 999px;
+  display: grid;
+  place-items: center;
+  background: var(--ink);
+  color: var(--paper);
+  font-family: var(--font-display), Georgia, serif;
+  font-weight: 600;
+  letter-spacing: -0.04em;
+}
+
+.brand strong {
+  display: block;
+  font-family: var(--font-display), Georgia, serif;
+  font-size: 1.35rem;
+  font-weight: 560;
+  letter-spacing: -0.03em;
+  line-height: 1;
+}
+
+.brand small {
+  color: var(--muted);
+  font-size: 0.82rem;
+}
+
+.nav {
+  display: flex;
+  gap: 1rem;
+  font-size: 0.95rem;
+}
+
+.nav a { text-underline-offset: 0.2em; }
+
+.disclaimer {
+  margin: 1rem 0 0;
+  color: var(--muted);
+  font-size: 0.92rem;
+  max-width: 68ch;
+}
+
+.hero { padding: 2.4rem 0 1.2rem; }
+
+.kicker {
+  margin: 0 0 0.6rem;
+  text-transform: uppercase;
+  letter-spacing: 0.14em;
+  font-size: 0.75rem;
+  color: var(--clay-deep);
+  font-weight: 700;
+}
+
+h1, h2, h3 {
+  font-family: var(--font-display), Georgia, serif;
+  font-weight: 560;
+  letter-spacing: -0.03em;
+  line-height: 1.05;
+}
+
+h1 {
+  margin: 0;
+  font-size: clamp(2.5rem, 6vw, 4.6rem);
+  max-width: 14ch;
+}
+
+.lede {
+  max-width: 46rem;
+  font-size: 1.15rem;
+  margin: 1rem 0 0;
+}
+
+.panel {
+  background: var(--card);
+  border: 1px solid var(--line);
+  border-radius: 18px;
+  box-shadow: var(--shadow);
+  padding: 1.1rem;
+}
+
+.need-form { margin: 0.5rem 0 2rem; }
+
+label {
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+  font-size: 0.82rem;
+  color: var(--muted);
+  font-weight: 650;
+}
+
+textarea, input, select {
+  width: 100%;
+  border: 1px solid var(--line);
+  background: #fff;
+  color: var(--ink);
+  border-radius: 10px;
+  padding: 0.7rem 0.75rem;
+  font: inherit;
+  font-size: 1rem;
+}
+
+textarea { min-height: 6.2rem; resize: vertical; }
+
+textarea:focus, input:focus, select:focus {
+  outline: 2px solid var(--clay);
+  border-color: transparent;
+}
+
+.fields {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 0.75rem;
+  margin-top: 0.8rem;
+}
+
+.span-2 { grid-column: span 2; }
+
+.form-row {
+  display: flex;
+  justify-content: space-between;
+  gap: 1rem;
+  align-items: center;
+  margin-top: 0.9rem;
+}
+
+button, .button {
+  appearance: none;
+  border: 0;
+  background: var(--ink);
+  color: var(--paper);
+  border-radius: 999px;
+  padding: 0.75rem 1.15rem;
+  font: inherit;
+  font-weight: 650;
+  text-decoration: none;
+  cursor: pointer;
+}
+
+button:hover, .button:hover { background: var(--clay-deep); }
+
+.hint { color: var(--muted); font-size: 0.88rem; margin: 0; }
+
+.board-head, .section-head {
+  display: flex;
+  justify-content: space-between;
+  gap: 1rem;
+  align-items: baseline;
+  margin: 0.5rem 0 0.8rem;
+}
+
+h2 { margin: 0; font-size: 2rem; }
+
+.cards {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 0.8rem;
+}
+
+.card {
+  display: flex;
+  flex-direction: column;
+  gap: 0.7rem;
+  min-height: 11rem;
+  padding: 1rem;
+  text-decoration: none;
+  background: var(--card);
+  border: 1px solid var(--line);
+  border-left: 6px solid var(--clay);
+  border-radius: 16px;
+}
+
+.card:hover { border-color: var(--ink); }
+
+.card h3 {
+  margin: 0;
+  font-size: 1.45rem;
+  line-height: 1.1;
+}
+
+.meta { color: var(--muted); font-size: 0.92rem; margin: 0; }
+
+.price {
+  font-family: var(--font-display), Georgia, serif;
+  font-size: 1.8rem;
+  margin: 0;
+  letter-spacing: -0.03em;
+}
+
+.offers { list-style: none; margin: 0; padding: 0; }
+
+.offer {
+  display: grid;
+  grid-template-columns: 9.5rem 1fr auto;
+  gap: 1rem;
+  align-items: center;
+  padding: 1rem 0;
+  border-top: 1px solid var(--line);
+}
+
+.offer .price { font-size: 2rem; }
+
+.compare {
+  display: block;
+  color: var(--muted);
+  text-decoration: line-through;
+  font-family: var(--font-sans), sans-serif;
+  font-size: 0.95rem;
+  letter-spacing: 0;
+}
+
+.title { margin: 0; font-size: 1.15rem; font-weight: 680; }
+
+.checkout {
+  display: inline-flex;
+  align-items: center;
+  border-radius: 999px;
+  padding: 0.65rem 0.9rem;
+  background: var(--pine);
+  color: #f4fff8;
+  text-decoration: none;
+  font-weight: 680;
+  font-size: 0.95rem;
+}
+
+.checkout:hover { background: #144833; }
+
+.tag {
+  display: inline-block;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  padding: 0.05rem 0.45rem;
+  font-size: 0.75rem;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+.empty {
+  padding: 1rem 0 0.2rem;
+  color: var(--muted);
+}
+
+.snapshot {
+  margin: 1.5rem 0;
+  color: var(--muted);
+  font-size: 0.92rem;
+}
+
+.mcp {
+  margin-top: 2.5rem;
+}
+
+pre {
+  overflow: auto;
+  background: var(--ink);
+  color: #f6efe4;
+  border-radius: 14px;
+  padding: 1rem;
+  font-size: 0.9rem;
+}
+
+footer {
+  margin-top: 3rem;
+  padding-top: 1rem;
+  border-top: 1px solid var(--line);
+  color: var(--muted);
+  font-size: 0.92rem;
+}
+
+.recent { margin-top: 1.5rem; }
+
+.recent a { font-weight: 680; }
+
+@media (max-width: 860px) {
+  .cards, .fields { grid-template-columns: 1fr 1fr; }
+  .offer { grid-template-columns: 1fr; }
+  .span-2 { grid-column: span 2; }
+}
+
+@media (max-width: 560px) {
+  .cards, .fields, .span-2 { grid-template-columns: 1fr; grid-column: auto; }
+  .top, .form-row, .board-head { flex-direction: column; align-items: flex-start; }
+  h1 { font-size: 2.4rem; }
+}

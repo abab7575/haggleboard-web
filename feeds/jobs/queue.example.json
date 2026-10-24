@@ -1,0 +1,14 @@
+{
+  "version": 1,
+  "jobs": [
+    {
+      "id": "example-pacersrunning",
+      "domain": "pacersrunning.com",
+      "pages": 1,
+      "limit": 30,
+      "status": "pending",
+      "created_at": "2026-10-18T00:00:00.000Z",
+      "updated_at": "2026-10-18T00:00:00.000Z"
+    }
+  ]
+}

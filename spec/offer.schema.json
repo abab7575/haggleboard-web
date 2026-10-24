@@ -1,0 +1,31 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://haggleboard.com/spec/offer.schema.json",
+  "title": "Offer",
+  "type": "object",
+  "required": ["store_domain", "price", "currency", "product_url", "source", "checkout"],
+  "properties": {
+    "store_domain": { "type": "string" },
+    "brand": { "type": "string" },
+    "model": { "type": "string" },
+    "title": { "type": "string" },
+    "gender": { "enum": ["women", "men", "unisex", "kids", "unknown"] },
+    "size": { "type": ["string", "null"] },
+    "color": { "type": ["string", "null"] },
+    "available": { "type": "boolean" },
+    "price": { "type": "string" },
+    "price_cents": { "type": "integer" },
+    "compare_at_price": { "type": ["string", "null"] },
+    "compare_at_cents": { "type": ["integer", "null"] },
+    "currency": { "type": "string" },
+    "product_url": { "type": "string", "format": "uri" },
+    "source": { "enum": ["feed", "bid"] },
+    "observed_at": { "type": "string" },
+    "shipping": { "type": ["string", "null"] },
+    "delivery_days": { "type": ["integer", "null"] },
+    "returns_days": { "type": ["integer", "null"] },
+    "note": { "type": ["string", "null"] },
+    "checkout": { "const": "store_site" },
+    "verified": { "type": ["boolean", "null"] }
+  }
+}

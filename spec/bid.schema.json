@@ -1,0 +1,31 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://haggleboard.com/spec/bid.schema.json",
+  "title": "Store bid",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["store_domain", "product_url", "price", "currency"],
+  "properties": {
+    "store_domain": { "type": "string" },
+    "product_url": {
+      "type": "string",
+      "format": "uri",
+      "description": "https URL on the store's own hostname. Checkout happens there."
+    },
+    "price": { "type": "number", "exclusiveMinimum": 0 },
+    "currency": { "type": "string", "minLength": 3, "maxLength": 3 },
+    "request_id": { "type": "string", "format": "uuid" },
+    "brand": { "type": "string" },
+    "model": { "type": "string" },
+    "title": { "type": "string" },
+    "gender": { "enum": ["women", "men", "unisex", "kids"] },
+    "size": { "type": "string" },
+    "color": { "type": "string" },
+    "available": { "type": "boolean" },
+    "compare_at_price": { "type": "number" },
+    "shipping": { "type": "string" },
+    "delivery_days": { "type": "integer", "minimum": 0 },
+    "returns_days": { "type": "integer", "minimum": 0 },
+    "note": { "type": "string" }
+  }
+}
