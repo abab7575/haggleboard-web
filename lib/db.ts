@@ -257,6 +257,8 @@ export async function openStore(env: NodeJS.ProcessEnv = process.env): Promise<S
   try {
     if (url) {
       if (/^postgres(?:ql)?:\/\//i.test(url)) return await openPostgres(url);
+      if (url.startsWith("pglite://") && env.VERCEL)
+        throw new Error("pglite:// is for local dev and tests only; set a postgres DATABASE_URL on Vercel");
       if (url === "pglite://memory") return await openPglite();
       if (url.startsWith("pglite://")) return await openPglite(url.slice("pglite://".length));
       if (url === ":memory:" || url.startsWith("file:")) return openSqlite(sqlitePath(url));
@@ -265,6 +267,7 @@ export async function openStore(env: NodeJS.ProcessEnv = process.env): Promise<S
     if (env.VERCEL) return unavailableStore();
     return await openPglite(path.join(process.cwd(), "data", "pglite"));
   } catch (error) {
+    if (error instanceof Error && error.message.startsWith("pglite:// is for local")) throw error;
     if (error instanceof StoreUnavailableError) return unavailableStore();
     if (env.VERCEL) return unavailableStore();
     throw error;
