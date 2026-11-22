@@ -2,9 +2,11 @@ import { Fraunces, Outfit } from "next/font/google";
 import { Shell } from "../components/shell";
 import { rootMetadata } from "../lib/indexing";
 import "./globals.css";
+import "./arena.css";
 
 const display = Fraunces({
   subsets: ["latin"],
+  axes: ["SOFT", "WONK", "opsz"],
   variable: "--font-display",
   display: "swap",
 });

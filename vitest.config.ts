@@ -1,7 +1,7 @@
 import { defineConfig } from "vitest/config";
 
 export default defineConfig({
-  // Pages are rendered in tests/privacy.test.ts. tsconfig keeps jsx "preserve" for Next.
+  // tsconfig keeps JSX as "preserve" for Next; tests that render components need it compiled.
   oxc: { jsx: { runtime: "automatic" } },
   test: {
     environment: "node",
