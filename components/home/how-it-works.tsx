@@ -81,22 +81,36 @@ export function HowItWorks() {
       </li>
 
       <li className="step step--compete">
-        <svg viewBox="0 0 240 150" role="img" aria-labelledby="step-compete-title">
-          <title id="step-compete-title">Stores take turns leading while a clock runs down</title>
-          <g className="d-clock">
-            <circle cx="46" cy="72" r="30" className="d-clock-face" />
-            <circle cx="46" cy="72" r="30" className="d-clock-ring" pathLength="100" />
-            <line x1="46" y1="72" x2="46" y2="52" className="d-clock-hand" />
+        <svg viewBox="0 0 240 150" role="img" aria-labelledby="step-compete-title" className="mini-arena">
+          <title id="step-compete-title">
+            A small auction: a clock sweeps down while three stores bid, and the second store overtakes the first
+          </title>
+          <rect x="6" y="6" width="228" height="138" rx="14" className="ma-panel" />
+          <g className="ma-clock">
+            <circle cx="30" cy="30" r="12" className="ma-clock-face" />
+            <circle cx="30" cy="30" r="12" className="ma-clock-ring" pathLength="100" />
+            <line x1="30" y1="30" x2="30" y2="21" className="ma-clock-hand" />
           </g>
-          {[0, 1, 2].map((i) => (
-            <g key={i} className={`d-lane d-lane-${i}`}>
-              <line x1="98" y1={42 + i * 30} x2="222" y2={42 + i * 30} />
-              <circle cx="110" cy={42 + i * 30} r="8" className={`d-token d-token-${i}`} />
+          <text x="50" y="27" className="ma-title">Trail shoes, size 8</text>
+          <text x="50" y="40" className="ma-sub">stores bidding</text>
+          <rect x="14" y="54" width="212" height="26" rx="8" className="ma-glow" />
+          {[
+            { y: 67, letter: "P", tone: "clay" },
+            { y: 95, letter: "G", tone: "plum" },
+            { y: 123, letter: "T", tone: "ochre" },
+          ].map((lane, i) => (
+            <g key={lane.letter} className={`ma-lane ma-lane-${i}`}>
+              <circle cx="28" cy={lane.y} r="7.5" className={`ma-chip ma-${lane.tone}`} />
+              <text x="28" y={lane.y + 3.2} textAnchor="middle" className="ma-letter">
+                {lane.letter}
+              </text>
+              <line x1="44" y1={lane.y} x2="186" y2={lane.y} className="ma-track" />
+              <circle cx="0" cy={lane.y} r="5.5" className={`ma-token ma-token-${i} ma-${lane.tone}`} />
             </g>
           ))}
-          <g className="d-crown">
-            <circle cx="0" cy="0" r="9" />
-            <text x="0" y="3.5" textAnchor="middle">1st</text>
+          <g className="ma-stamp">
+            <circle cx="0" cy="0" r="11" />
+            <text x="0" y="2.6" textAnchor="middle">LEAD</text>
           </g>
         </svg>
         <h3>Stores compete on the clock</h3>

@@ -130,7 +130,7 @@ export type ArenaState = {
   leadKey: number;
 };
 
-export const FINAL_SECONDS = 10;
+export const FINAL_SECONDS = 15;
 
 export function bandLabel(band: number | null): string {
   if (band == null || band <= 0) return "at the public price";
@@ -165,7 +165,14 @@ export function commentaryFor(
     const who = name(event.bidder);
     if (leaderBefore == null) return { at: event.at, text: `${who} opens, ${bandLabel(event.band)}.`, tone: "lead" };
     if (left <= FINAL_SECONDS) {
-      return { at: event.at, text: `${who} snatches it with ${Math.max(1, Math.round(left))} seconds left!`, tone: "snipe" };
+      const n = Math.max(1, Math.round(left));
+      const text =
+        n <= 3
+          ? `${who} snatches it with ${n} second${n === 1 ? "" : "s"} left!`
+          : Math.round(event.at) % 2 === 0
+            ? `${who} hits back. ${n} seconds left!`
+            : `${who} grabs the lead. ${n} seconds to go!`;
+      return { at: event.at, text, tone: "snipe" };
     }
     if (leaderBefore === event.bidder) return { at: event.at, text: `${who} goes lower, ${bandLabel(event.band)}.`, tone: "lead" };
     return { at: event.at, text: `${who} takes the lead, ${bandLabel(event.band)}.`, tone: "lead" };
@@ -175,6 +182,24 @@ export function commentaryFor(
     text: `Clock's out. ${name(event.winner)} wins, ${event.saved_pct}% under the best public price.`,
     tone: "close",
   };
+}
+
+/**
+ * Lane order on the board: the leader on top, then the deepest public band,
+ * then stores that are in, then empty seats. Ties keep the bidder list order.
+ */
+export function rankBidders(bidders: BidderState[]): BidderState[] {
+  return bidders
+    .map((b, i) => ({ b, i }))
+    .sort((x, y) => {
+      if (x.b.leading !== y.b.leading) return x.b.leading ? -1 : 1;
+      const bx = x.b.band ?? -1;
+      const by = y.b.band ?? -1;
+      if (bx !== by) return by - bx;
+      if (x.b.joined !== y.b.joined) return x.b.joined ? -1 : 1;
+      return x.i - y.i;
+    })
+    .map(({ b }) => b);
 }
 
 /** Everything the public can see at `t` seconds after the clock started. */

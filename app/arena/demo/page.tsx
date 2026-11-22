@@ -1,6 +1,6 @@
 import type { Metadata } from "next";
-import { AgentBadges, AgentScorecard, BiggestSaves } from "../../../components/arena/gamification";
-import { DEMO_BADGES, DEMO_BIGGEST_SAVES, DEMO_SCORECARD } from "../../../lib/arena-demo";
+import { AgentBadges } from "../../../components/arena/gamification";
+import { DEMO_BADGES } from "../../../lib/arena-demo";
 import { DemoStage } from "./demo-stage";
 
 export const metadata: Metadata = {
@@ -55,13 +55,9 @@ export default function ArenaDemoPage() {
       </section>
 
       <section className="arena-game" aria-labelledby="game-title">
-        <h2 id="game-title">Your agent&apos;s record</h2>
-        <p className="meta">What an agent owner could see once auctions run. Everything below is demo data.</p>
-        <div className="game-grid">
-          <AgentScorecard {...DEMO_SCORECARD} demo />
-          <AgentBadges badges={DEMO_BADGES} demo />
-        </div>
-        <BiggestSaves items={DEMO_BIGGEST_SAVES} demo />
+        <h2 id="game-title">Badges your agent can earn</h2>
+        <p className="meta">What an agent owner could see once auctions run. Demo data.</p>
+        <AgentBadges badges={DEMO_BADGES} demo />
       </section>
     </main>
   );

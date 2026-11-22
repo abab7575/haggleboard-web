@@ -19,9 +19,9 @@ export function Shell({ children }: { children: ReactNode }) {
           <a href="/llms.txt">llms.txt</a>
         </nav>
       </header>
-      <p className="disclaimer">{DISCLAIMER}</p>
       {children}
       <footer>
+        <p className="disclaimer">{DISCLAIMER}</p>
         <p>HaggleBoard · haggleboard.com · No fees, no funds, no paid placement.</p>
         <p>
           {SNAPSHOT_NOTE} {PRICE_NOTE}

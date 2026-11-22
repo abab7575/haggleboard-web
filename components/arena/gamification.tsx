@@ -30,7 +30,10 @@ export function AgentScorecard({ agentName, dealsWon, totalSaved, fastestWinSec,
         </div>
         <div>
           <dt>Fastest win</dt>
-          <dd>{durationWords(fastestWinSec)}</dd>
+          <dd>
+            <span aria-hidden="true">{`${Math.floor(fastestWinSec / 60)}m ${String(Math.round(fastestWinSec % 60)).padStart(2, "0")}s`}</span>
+            <span className="sr-only">{durationWords(fastestWinSec)}</span>
+          </dd>
         </div>
         <div>
           <dt>Win streak</dt>

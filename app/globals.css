@@ -90,11 +90,11 @@ a { color: inherit; }
 .nav a { text-underline-offset: 0.2em; }
 
 .disclaimer {
-  margin: 0.7rem 0 0;
+  margin: 0 0 1rem;
   color: var(--muted);
-  font-size: 0.78rem;
-  line-height: 1.45;
-  max-width: none;
+  font-size: 0.85rem;
+  line-height: 1.5;
+  max-width: 90ch;
 }
 
 .hero { padding: 2.4rem 0 1.2rem; }

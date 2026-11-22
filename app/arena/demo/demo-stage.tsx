@@ -2,8 +2,9 @@
 
 import { useCallback, useState } from "react";
 import { Arena } from "../../../components/arena/arena";
+import { AgentScorecard, BiggestSaves } from "../../../components/arena/gamification";
 import { ResultCard } from "../../../components/arena/result-card";
-import { FULL_SCRIPT } from "../../../lib/arena-demo";
+import { DEMO_BIGGEST_SAVES, DEMO_SCORECARD, FULL_SCRIPT } from "../../../lib/arena-demo";
 
 const close = FULL_SCRIPT.events.find((e) => e.kind === "close");
 
@@ -34,23 +35,26 @@ export function DemoStage() {
         onClose={onClose}
         onPlay={onPlay}
       />
-      <div className={`demo-result${justClosed ? " is-fresh" : ""}`} key={justClosed}>
-        <h2>The result card</h2>
-        {close && close.kind === "close" && showResult ? (
-          <ResultCard
-            request={FULL_SCRIPT.request}
-            winner={winner}
-            savedPct={close.saved_pct}
-            wonAtSec={close.won_at}
-            demo
-          />
-        ) : (
-          <div className="result-pending" role="status">
-            <p>Your agent&apos;s result card lands here when the clock hits zero.</p>
-            <p className="meta">Watch the lead. It can change hands right up to the last second.</p>
-          </div>
-        )}
-      </div>
+      <aside className="demo-side" aria-label="Result and scores">
+        <div className={`demo-result${justClosed ? " is-fresh" : ""}`} key={justClosed}>
+          {close && close.kind === "close" && showResult ? (
+            <ResultCard
+              request={FULL_SCRIPT.request}
+              winner={winner}
+              savedPct={close.saved_pct}
+              wonAtSec={close.won_at}
+              demo
+            />
+          ) : (
+            <div className="result-pending" role="status">
+              <p>Your result card lands here at 0:00.</p>
+              <p className="meta">The lead can change hands right up to the last second.</p>
+            </div>
+          )}
+        </div>
+        <AgentScorecard {...DEMO_SCORECARD} demo />
+        <BiggestSaves items={DEMO_BIGGEST_SAVES} demo />
+      </aside>
     </div>
   );
 }

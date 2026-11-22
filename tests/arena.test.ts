@@ -11,6 +11,7 @@ import {
   MONEY_PATTERN,
   PRIVATE_FIELD_NAMES,
   arenaStateAt,
+  rankBidders,
   toBand,
   toPublicArenaEvent,
   toPublicArenaEvents,
@@ -131,7 +132,7 @@ describe("reduced motion and no-JS render the whole story", () => {
     expect(text).toContain(HERO_SCRIPT.request);
     for (const b of HERO_SCRIPT.bidders) expect(text).toContain(b.name);
     expect(text).toMatch(/3 stores joined/);
-    expect(text).toMatch(/lead changed hands 3 times: Puddlejump, then Grumpy Heron, then Puddlejump, then Ten Toes/);
+    expect(text).toMatch(/lead changed hands 4 times: Puddlejump, then Grumpy Heron, then Puddlejump, then Grumpy Heron, then Ten Toes/);
     expect(text).toMatch(/Ten Toes wins/);
     expect(text).toMatch(/14% under the best public price, in 1 minute 52 seconds/);
     expect(text).toMatch(/Your agent saved you 14%/);
@@ -142,7 +143,7 @@ describe("reduced motion and no-JS render the whole story", () => {
     const text = visibleText(renderArena(FULL_SCRIPT, { variant: "full" }));
     const state = arenaStateAt(FULL_SCRIPT.events, FULL_SCRIPT.bidders, FULL_SCRIPT.durationSec, FULL_SCRIPT.durationSec);
     let from = 0;
-    for (const line of state.commentary) {
+    for (const line of state.commentary.filter((l) => l.tone !== "close")) {
       const at = text.indexOf(line.text, from);
       expect(at, line.text).toBeGreaterThan(-1);
       from = at;
@@ -178,12 +179,27 @@ describe("arena state", () => {
     const s = arenaStateAt(HERO_SCRIPT.events, HERO_SCRIPT.bidders, 120, 120);
     expect(s.phase).toBe("closed");
     expect(s.leaderId).toBe("c");
-    expect(s.leadChanges).toBe(3);
+    expect(s.leadChanges).toBe(4);
     const mid = arenaStateAt(HERO_SCRIPT.events, HERO_SCRIPT.bidders, 120, 45);
     expect(mid.leaderId).toBe("b");
     expect(mid.leaderBand).toBe(10);
     expect(mid.bidders.find((b) => b.bidder.id === "c")?.joined).toBe(false);
     expect(arenaStateAt(HERO_SCRIPT.events, HERO_SCRIPT.bidders, 120, 115).phase).toBe("final");
+    expect(arenaStateAt(HERO_SCRIPT.events, HERO_SCRIPT.bidders, 120, 106).phase).toBe("final");
+  });
+
+  it("ranks the leader on top and lets an overtaking store pass", () => {
+    const before = rankBidders(arenaStateAt(HERO_SCRIPT.events, HERO_SCRIPT.bidders, 120, 100).bidders);
+    const after = rankBidders(arenaStateAt(HERO_SCRIPT.events, HERO_SCRIPT.bidders, 120, 113).bidders);
+    expect(before.map((b) => b.bidder.id)).toEqual(["a", "b", "c"]);
+    expect(after.map((b) => b.bidder.id)).toEqual(["c", "a", "b"]);
+  });
+
+  it("speeds up in the last 15 seconds of the demo scripts", () => {
+    for (const script of [HERO_SCRIPT, FULL_SCRIPT]) {
+      const late = script.events.filter((e) => e.kind === "lead" && e.at >= script.durationSec - 15);
+      expect(late.length).toBeGreaterThanOrEqual(2);
+    }
   });
 });
 

@@ -1,11 +1,12 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import {
   arenaStateAt,
   bandLabel,
   clockLabel,
   durationWords,
+  rankBidders,
   type ArenaState,
   type PublicArenaEvent,
   type PublicBidder,
@@ -17,7 +18,7 @@ export type ArenaProps = {
   request: string;
   /** Length of the clock in seconds. The deadline is opensAt + durationSec. */
   durationSec: number;
-  /** Stores that may appear. Lanes stay in this order. */
+  /** Stores that may appear. Lanes are ranked: leader on top, then by band. */
   bidders: PublicBidder[];
   /** Public events only (run raw data through toPublicArenaEvents first). */
   events: PublicArenaEvent[];
@@ -169,6 +170,30 @@ export function Arena({
     return () => cancelAnimationFrame(raf);
   }, [mode, rate, durationSec, holdMs, loop, opensAt, onClose, onPlay]);
 
+  const ranked = useMemo(() => rankBidders(state.bidders), [state.bidders]);
+  const orderKey = ranked.map((b) => b.bidder.id).join(",");
+  const laneRefs = useRef(new Map<string, HTMLLIElement>());
+  const prevTops = useRef(new Map<string, number>());
+
+  // FLIP: when the order changes, slide each lane from where it was. An
+  // overtaking store visibly passes the one it beat.
+  useLayoutEffect(() => {
+    const still =
+      mode === "static" ||
+      (typeof window !== "undefined" && window.matchMedia?.("(prefers-reduced-motion: reduce)").matches);
+    laneRefs.current.forEach((el, id) => {
+      const top = el.offsetTop;
+      const prev = prevTops.current.get(id);
+      if (!still && prev != null && prev !== top && typeof el.animate === "function") {
+        el.animate([{ transform: `translateY(${prev - top}px)` }, { transform: "translateY(0)" }], {
+          duration: 520,
+          easing: "cubic-bezier(0.16, 1, 0.3, 1)",
+        });
+      }
+      prevTops.current.set(id, top);
+    });
+  }, [orderKey, mode]);
+
   const isStatic = mode === "static";
   const intro = t < 0;
   const leader = state.bidders.find((b) => b.leading) ?? null;
@@ -208,12 +233,16 @@ export function Arena({
       </div>
 
       <ol className="arena-lanes" aria-label="Stores bidding">
-        {state.bidders.map((b) => {
+        {ranked.map((b) => {
           const x = b.band == null ? 0 : Math.min(1, b.band / 20);
           const won = state.close?.winner === b.bidder.id;
           return (
             <li
               key={b.bidder.id}
+              ref={(el) => {
+                if (el) laneRefs.current.set(b.bidder.id, el);
+                else laneRefs.current.delete(b.bidder.id);
+              }}
               className={`lane tone-${b.bidder.tone}${b.joined ? " is-in" : " is-waiting"}${b.leading ? " is-leading" : ""}${won ? " is-winner" : ""}`}
             >
               <span className="lane-name">
@@ -372,7 +401,7 @@ function StaticStory({
       {variant === "full" ? (
         <ol className="arena-story-list">
           <li className="tone-info">{perspective === "shopper" ? "Your agent posted" : "An agent posted"}: {request}. The clock starts.</li>
-          {state.commentary.map((line) => (
+          {state.commentary.filter((line) => line.tone !== "close").map((line) => (
             <li key={`${line.at}-${line.text}`} className={`tone-${line.tone}`}>
               <span className="arena-story-time">{clockLabel(durationSec - line.at)}</span> {line.text}
             </li>

@@ -32,12 +32,13 @@ export const HERO_SCRIPT: ArenaScript = {
     { kind: "lead", at: 40, bidder: "b", band: 10 },
     { kind: "join", at: 58, bidder: "c" },
     { kind: "lead", at: 80, bidder: "a", band: 10 },
+    { kind: "lead", at: 107, bidder: "b", band: 10 },
     { kind: "lead", at: 112, bidder: "c", band: 15 },
     { kind: "close", at: 120, winner: "c", saved_pct: 14, won_at: 112 },
   ],
 };
 
-/** The longer bout for /arena/demo: four stores and two late snipes. */
+/** The longer bout for /arena/demo: four stores and a flurry in the last 15 seconds. */
 export const FULL_SCRIPT: ArenaScript = {
   request: "Trail running shoes, women's size 8",
   durationSec: 120,
@@ -53,7 +54,10 @@ export const FULL_SCRIPT: ArenaScript = {
     { kind: "lead", at: 70, bidder: "b", band: 10 },
     { kind: "lead", at: 86, bidder: "d", band: 15 },
     { kind: "lead", at: 101, bidder: "c", band: 15 },
-    { kind: "lead", at: 114, bidder: "d", band: 15 },
+    { kind: "lead", at: 106, bidder: "d", band: 15 },
+    { kind: "lead", at: 109, bidder: "b", band: 15 },
+    { kind: "lead", at: 112, bidder: "c", band: 15 },
+    { kind: "lead", at: 115, bidder: "d", band: 20 },
     { kind: "lead", at: 118, bidder: "b", band: 20 },
     { kind: "close", at: 120, winner: "b", saved_pct: 18, won_at: 118 },
   ],
