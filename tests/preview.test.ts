@@ -92,7 +92,10 @@ describe("preview indexing", () => {
     expect(rootMetadata(hidden).robots).toEqual({ index: false, follow: false });
 
     const listed = env({ NODE_ENV: "production", HB_PUBLIC: "1", VERCEL: "1", VERCEL_ENV: "production" });
-    expect(robotsDocument(listed)).toEqual({ rules: [{ userAgent: "*", allow: "/" }] });
+    expect(robotsDocument(listed)).toEqual({
+      rules: [{ userAgent: "*", allow: "/", disallow: ["/find", "/find.json"] }],
+      sitemap: "https://haggleboard.com/sitemap.xml",
+    });
     expect(rootMetadata(listed).robots).toEqual({ index: true, follow: true });
 
     expect(robots()).toEqual({ rules: [{ userAgent: "*", disallow: "/" }] });

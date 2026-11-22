@@ -42,6 +42,8 @@ export type Deps = {
   afterPost?: (request: { id: string; need: ResolvedNeed; origin: RequestOrigin }) => void;
   /** Who is calling, for the event log (lib/events.ts). Defaults to our own service traffic. */
   context?: EventContext;
+  /** One-address posting (/find): a hash of the query, kept privately so a repeat can be found. */
+  findKey?: string;
 };
 
 function contextOf(deps: Deps): EventContext {
@@ -194,7 +196,7 @@ export async function postRequest(input: unknown, deps: Deps) {
   if (deps.store.kind !== "unavailable") {
     try {
       const snapshot = snapshotOffers(need, await liveVariants(deps));
-      const opened = postedEvents(id, need, window, ctx, body.handle ?? null, created_at);
+      const opened = postedEvents(id, need, window, ctx, body.handle ?? null, created_at, deps.findKey ?? null);
       const offered = offerEvents(id, window, [], snapshot, now).events;
       // The request, request.posted, request.holding, and the opening offers: one transaction.
       await deps.store.saveRequest(
@@ -292,6 +294,7 @@ function postedEvents(
   ctx: EventContext,
   handle: string | null,
   at: string,
+  findKey: string | null = null,
 ): NewEvent[] {
   const pub = publicNeed(need);
   const events: NewEvent[] = [
@@ -325,6 +328,7 @@ function postedEvents(
         region: need.region,
         quantity: need.quantity,
         attributes: need.attributes,
+        ...(findKey ? { find_key: findKey } : {}),
       },
     },
   ];
