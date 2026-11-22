@@ -9,14 +9,14 @@ export function Shell({ children }: { children: ReactNode }) {
           <span className="seal" aria-hidden="true">Hb</span>
           <span>
             <strong>HaggleBoard</strong>
-            <small>Open board for shopping agents</small>
+            <small>Stores compete for your agent</small>
           </span>
         </a>
         <nav className="nav">
+          <a href="/#how">How it works</a>
+          <a href="/arena/demo">Demo auction</a>
+          <a href="/#agents">For agents</a>
           <a href="/llms.txt">llms.txt</a>
-          <a href="/bot">Crawler</a>
-          <a href="/#mcp">MCP</a>
-          <a href="/api/offers">Bid API</a>
         </nav>
       </header>
       <p className="disclaimer">{DISCLAIMER}</p>
@@ -30,7 +30,8 @@ export function Shell({ children }: { children: ReactNode }) {
           Store owner? Ask us to remove your listings: <a href={`mailto:${CONTACT_EMAIL}`}>{CONTACT_EMAIL}</a>
         </p>
         <p>
-          <a href="/terms">Terms</a> · <a href="/privacy">Privacy</a> · <a href="/contact">Contact</a>
+          <a href="/terms">Terms</a> · <a href="/privacy">Privacy</a> · <a href="/contact">Contact</a> ·{" "}
+          <a href="/bot">Crawler</a> · <a href="/#mcp">MCP</a> · <a href="/api/offers">Bid API</a>
         </p>
       </footer>
     </div>

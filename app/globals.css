@@ -33,7 +33,7 @@ a { color: inherit; }
 ::selection { background: #f0c2b6; }
 
 .page {
-  width: min(1080px, calc(100% - 2rem));
+  width: min(1180px, calc(100% - 2rem));
   margin: 0 auto;
   padding-bottom: 4rem;
 }
@@ -90,10 +90,11 @@ a { color: inherit; }
 .nav a { text-underline-offset: 0.2em; }
 
 .disclaimer {
-  margin: 1rem 0 0;
+  margin: 0.7rem 0 0;
   color: var(--muted);
-  font-size: 0.92rem;
-  max-width: 68ch;
+  font-size: 0.78rem;
+  line-height: 1.45;
+  max-width: none;
 }
 
 .hero { padding: 2.4rem 0 1.2rem; }

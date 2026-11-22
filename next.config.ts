@@ -14,7 +14,10 @@ const nextConfig: NextConfig = {
           {
             key: "Content-Security-Policy",
             value:
-              "default-src 'self'; img-src 'self' data:; style-src 'self' 'unsafe-inline'; script-src 'self' 'unsafe-inline'; frame-ancestors 'none'; base-uri 'self'; form-action 'self'",
+              `default-src 'self'; img-src 'self' data:; style-src 'self' 'unsafe-inline'; script-src 'self' 'unsafe-inline'${
+                // next dev evaluates modules with eval(); production builds do not.
+                process.env.NODE_ENV === "development" ? " 'unsafe-eval'" : ""
+              }; frame-ancestors 'none'; base-uri 'self'; form-action 'self'`,
           },
           { key: "Strict-Transport-Security", value: "max-age=63072000; includeSubDomains" },
         ],
