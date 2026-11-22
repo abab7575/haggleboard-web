@@ -11,7 +11,7 @@ import {
 } from "./constants.js";
 import { hostMatchesDomain } from "./host.js";
 import { normalizeProducts, type ShopifyProduct } from "./normalize.js";
-import { createPoliteScheduler } from "./politeness.js";
+import { createPoliteScheduler, type PoliteScheduler } from "./politeness.js";
 import { decidePath, parseRobots } from "./robots.js";
 import type { StoreSeed } from "./seeds.js";
 import type { CatalogVariant } from "../referee/types.js";
@@ -53,6 +53,13 @@ export type CrawlOptions = {
   now?: () => number;
   sleep?: (ms: number) => Promise<void>;
   fetch?: FetchLike;
+  /**
+   * Share one scheduler across several stores so the gap between hosts is kept too (the watcher
+   * does this). It must have been built from the same resolved intervals; it never shortens them.
+   */
+  scheduler?: PoliteScheduler;
+  /** Do not fetch /cart.js when the currency is unknown. Fewer requests, currency "UNK". */
+  skipCurrencyLookup?: boolean;
 };
 
 type Fetched = {
@@ -69,12 +76,14 @@ export async function crawlStore(opts: CrawlOptions): Promise<StoreCrawlResult> 
   const pages = clamp(opts.pages, 1, MAX_PAGES);
   const limit = clamp(opts.limit, 1, MAX_LIMIT);
   const domain = opts.seed.domain;
-  const scheduler = createPoliteScheduler({
-    perHostMs: opts.perHostMs,
-    globalMs: opts.globalMs,
-    now,
-    sleep: opts.sleep,
-  });
+  const scheduler =
+    opts.scheduler ??
+    createPoliteScheduler({
+      perHostMs: opts.perHostMs,
+      globalMs: opts.globalMs,
+      now,
+      sleep: opts.sleep,
+    });
   const doFetch = opts.fetch ?? ((url: string, init: RequestInit) => fetch(url, init));
   const requests: RequestLog[] = [];
   const variants: CatalogVariant[] = [];
@@ -129,7 +138,7 @@ export async function crawlStore(opts: CrawlOptions): Promise<StoreCrawlResult> 
   base.robots_allowed = true;
 
   let currency = opts.seed.currency;
-  if (!currency) {
+  if (!currency && !opts.skipCurrencyLookup) {
     const cart = await fetchResource({
       url: `https://${domain}/cart.js`,
       key: "cart",

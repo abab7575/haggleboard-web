@@ -3,7 +3,7 @@ import { z } from "zod";
 import { hostMatchesDomain } from "../feeds/host.js";
 import { loadRemoved } from "../feeds/seeds.js";
 import { DISCLAIMER } from "./copy.js";
-import { getStore, StoreUnavailableError, variantToRow, type BidRow, type Store } from "./db.js";
+import { getStore, StoreUnavailableError, variantToRow, type BidRow, type RequestOrigin, type Store } from "./db.js";
 import { defaultFixturePath, readFixture } from "./catalog.js";
 import { HttpError } from "./http.js";
 import { bidsEnabled, deleteTokenHmac, deleteTokenKey, hmacEqual, newDeleteToken, newStoreKey, storeKeyHmac } from "./keys.js";
@@ -14,10 +14,18 @@ import { needIsEmpty, normalizeGtin, normalizeStoredNeed, parseNeed } from "../r
 import { rankOffers } from "../referee/rank.js";
 import type { CatalogVariant, Gender, PublicNeed, PublicOffer, ResolvedNeed } from "../referee/types.js";
 import { compareWithHolding, productOnly, publicNeed, publicOffer } from "./privacy.js";
+import { defaultOrigin } from "./origin.js";
+import { getWatchRun, listWatchOffers, type WatchRun } from "./watch-store.js";
+import { listPrivateOffers, type PrivateOffer } from "../watcher/store-rules.js";
+import { productMatches } from "../referee/match.js";
 
 export type Deps = {
   loadVariants: () => Promise<CatalogVariant[]>;
   store: Store;
+  /** Where the current request came from (lib/origin.ts). Defaults to "test" under tests, else "internal". */
+  origin?: RequestOrigin;
+  /** Called after a request is stored. The app routes use it to run the watcher when WATCHER_INLINE is on. */
+  afterPost?: (request: { id: string; need: ResolvedNeed; origin: RequestOrigin }) => void;
 };
 
 const DAY_MS_LOCAL = 24 * 60 * 60 * 1000;
@@ -146,6 +154,7 @@ export async function postRequest(input: unknown, deps: Deps) {
   const created_at = new Date().toISOString();
   const delete_token = newDeleteToken();
   let persisted = false;
+  const origin = deps.origin ?? defaultOrigin();
   if (deps.store.kind !== "unavailable") {
     try {
       await deps.store.saveRequest({
@@ -153,12 +162,14 @@ export async function postRequest(input: unknown, deps: Deps) {
         need_json: JSON.stringify(need),
         created_at,
         delete_token_hmac: deleteTokenHmac(deleteTokenKey(), id, delete_token),
+        origin,
       });
       persisted = true;
     } catch (error) {
       if (!(error instanceof StoreUnavailableError)) throw error;
     }
   }
+  if (persisted) deps.afterPost?.({ id, need, origin });
   const result = await collectOffers(need, persisted ? id : null, deps, body.limit ?? 20, "poster");
   return {
     id,
@@ -207,6 +218,7 @@ export async function getOffers(input: unknown, deps: Deps) {
       need: result.need,
       offers: result.offers,
       omitted_unavailable: result.omitted_unavailable,
+      watch: watchView(await getWatchRun(deps.store, body.request_id)),
       checkout: "store_site" as const,
       disclaimer: DISCLAIMER,
     };
@@ -445,8 +457,26 @@ export type BoardRow = {
   need: PublicNeed;
   stores_answered: number;
   prices: BoardPrice[];
-  outcome: "answered" | "no_offers";
+  /** answered: at least one store price. waiting: the watcher has not finished. no_offers: it finished with none. */
+  outcome: "answered" | "waiting" | "no_offers";
 };
+
+/** What the watcher did for a request. Public: store names and plain reasons, nothing about the shopper. */
+export function watchView(run: WatchRun | null) {
+  if (!run) return { status: "not_started" as const, stores: [] as Array<{ store_domain: string; status: string; reason: string | null }> };
+  return {
+    status: run.status,
+    finished_at: run.finished_at,
+    stores: (run.summary?.stores ?? []).map((item) => ({
+      store_domain: item.store_domain,
+      source: item.source,
+      status: item.status,
+      reason: item.reason,
+      checkout_route_known: item.checkout_route_known,
+    })),
+    stopped: run.summary?.stopped ?? null,
+  };
+}
 
 export const BOARD_LIMIT = 50;
 
@@ -458,9 +488,13 @@ export async function boardRows(deps: Deps, limit = BOARD_LIMIT): Promise<BoardR
   const rows = await deps.store.listRequests(Math.min(Math.max(1, limit), BOARD_LIMIT));
   const variants = await liveVariants(deps);
   const bids = await deps.store.listBids();
+  const watched = await listWatchOffers(deps.store, rows.map((row) => row.id));
+  const runs = new Map<string, WatchRun | null>();
+  for (const row of rows) runs.set(row.id, await getWatchRun(deps.store, row.id));
   return rows.map((row) => {
     const need = normalizeStoredNeed(JSON.parse(row.need_json) as Partial<ResolvedNeed>);
-    const offers = offersFor(need, row.id, variants, bids, "public").ranked.slice(0, 10);
+    const offers = offersFor(need, row.id, variants, bids, "public", watched.get(row.id) ?? [], []).ranked.slice(0, 10);
+    const run = runs.get(row.id) ?? null;
     const prices: BoardPrice[] = offers.map((offer) => ({
       store_domain: offer.store_domain,
       price: offer.price,
@@ -477,7 +511,7 @@ export async function boardRows(deps: Deps, limit = BOARD_LIMIT): Promise<BoardR
       need: publicNeed(need),
       stores_answered: new Set(offers.map((offer) => offer.store_domain)).size,
       prices,
-      outcome: offers.length > 0 ? ("answered" as const) : ("no_offers" as const),
+      outcome: offers.length > 0 ? ("answered" as const) : run?.status === "done" ? ("no_offers" as const) : ("waiting" as const),
     };
   });
 }
@@ -524,11 +558,21 @@ function offersFor(
   variants: CatalogVariant[],
   bids: BidRow[],
   view: View,
+  watched: CatalogVariant[] = [],
+  privateOffers: PrivateOffer[] = [],
 ) {
   const matchNeed = view === "public" ? productOnly(need) : need;
   const available = matchVariants(variants, matchNeed, true);
   const includingSoldOut = matchVariants(variants, matchNeed, false);
-  const offers = available.map((variant) => toPublicOffer(variant, "feed"));
+  // Prices the watcher read from stores' own feeds for this request. Newer than the snapshot.
+  const fresh = watched.filter((variant) => !isDemoSeller(variant) && productMatches(variant, matchNeed, true));
+  const freshUrls = new Set(fresh.map((variant) => variant.product_url));
+  const offers = [
+    ...fresh.map((variant) => toPublicOffer(variant, "feed")),
+    ...available.filter((variant) => !freshUrls.has(variant.product_url)).map((variant) => toPublicOffer(variant, "feed")),
+  ];
+  // A private offer under a store rule: the poster's view only.
+  if (view === "poster") for (const offer of privateOffers) offers.push(privateOfferToOffer(offer));
   for (const row of bids) {
     const stored = JSON.parse(row.bid_json) as StoredBid;
     if (stored.verified !== true || isDemoSeller(stored)) continue;
@@ -546,7 +590,9 @@ function offersFor(
 async function collectOffers(need: ResolvedNeed, requestId: string | null, deps: Deps, limit: number, view: View) {
   const variants = await liveVariants(deps);
   const bids = await deps.store.listBids();
-  const { ranked, omitted } = offersFor(need, requestId, variants, bids, view);
+  const watched = requestId ? ((await listWatchOffers(deps.store, [requestId])).get(requestId) ?? []) : [];
+  const privateOffers = requestId && view === "poster" ? await listPrivateOffers(deps.store, requestId) : [];
+  const { ranked, omitted } = offersFor(need, requestId, variants, bids, view, watched, privateOffers);
   const sliced = ranked.slice(0, limit);
   if (view === "public") {
     return { need: publicNeed(need) as PublicNeed | ResolvedNeed, offers: sliced.map(publicOffer), omitted_unavailable: omitted };
@@ -612,6 +658,35 @@ export function toPublicOffer(
     note: extra?.note ?? null,
     checkout: "store_site",
     verified: source === "bid" ? extra?.verified === true : null,
+  };
+}
+
+function privateOfferToOffer(offer: PrivateOffer): PublicOffer {
+  return {
+    store_domain: offer.store_domain,
+    brand: "",
+    model: "",
+    title: offer.title,
+    gender: "unknown",
+    size: offer.hbp.terms.item.size,
+    color: offer.hbp.terms.item.color,
+    available: true,
+    price: offer.price,
+    price_cents: offer.price_cents,
+    compare_at_price: offer.public_price,
+    compare_at_cents: Math.round(Number(offer.public_price) * 100),
+    currency: offer.currency,
+    product_url: offer.product_url,
+    source: "bid",
+    observed_at: offer.created_at,
+    shipping: null,
+    delivery_days: null,
+    returns_days: null,
+    note: `Private offer from this store under its standing rule. Only you see it. Expires ${offer.expires_at}.`,
+    checkout: "store_site",
+    verified: true,
+    expires_at: offer.expires_at,
+    hbp: offer.hbp,
   };
 }
 

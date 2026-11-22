@@ -84,9 +84,9 @@ export function productOnly(need: ResolvedNeed): ResolvedNeed {
   };
 }
 
-/** A public offer never carries a comparison with the poster's held order. */
+/** A public offer never carries a comparison with the poster's held order, or a private offer's terms. */
 export function publicOffer(offer: PublicOffer): PublicOffer {
-  const { vs_holding: _drop, ...rest } = offer;
+  const { vs_holding: _holding, expires_at: _expires, hbp: _hbp, ...rest } = offer;
   return rest;
 }
 

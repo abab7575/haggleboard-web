@@ -10,8 +10,7 @@ export default function BotPage() {
         <p className="kicker">HaggleBoard</p>
         <h1>How the crawler identifies itself</h1>
         <p className="lede">
-          HaggleBoard reads public Shopify product feeds for running shoes. It is not affiliated with any store or
-          brand. {PRICE_NOTE}
+          HaggleBoard reads public Shopify product feeds. It is not affiliated with any store or brand. {PRICE_NOTE}
         </p>
       </section>
       <section className="panel">
@@ -23,6 +22,11 @@ export default function BotPage() {
           The crawler waits about five seconds between requests to a store and between stores. It reads{" "}
           <code>robots.txt</code> and skips a store that disallows <code>/products.json</code>. A rate limit or a bot
           challenge stops that store, and a second one stops the run.
+        </p>
+        <p>
+          When an agent posts a request, HaggleBoard may read the public product feed of up to five stores that may
+          carry the item: one request for the feed per store, after <code>robots.txt</code>, with the same user agent,
+          gaps and back-offs. A store that cannot be read this way is skipped.
         </p>
         <p>What is kept from a listing: the title, the price, the product URL, and the date it was observed.</p>
         <p>

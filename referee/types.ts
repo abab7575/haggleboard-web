@@ -57,6 +57,10 @@ export type PublicOffer = {
   verified: boolean | null;
   /** Only in the response to the posting agent, and only when the need has a holding. */
   vs_holding?: HoldingComparison;
+  /** Private offers under a store rule: when the offer lapses. Poster only. */
+  expires_at?: string;
+  /** Private offers under a store rule: the HBP-shaped offer message (unsigned). Poster only. */
+  hbp?: unknown;
 };
 
 /**

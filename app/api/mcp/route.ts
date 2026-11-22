@@ -1,4 +1,6 @@
 import { getStore } from "../../../lib/db";
+import { withRequestHooks } from "../../../lib/inline-watch";
+import { defaultDeps } from "../../../lib/service";
 import { errorResponse, emptyOptions } from "../../../lib/http";
 import { assertWithinRateLimit } from "../../../lib/rate-limit";
 import { handleMcpRequest } from "../../../mcp/http";
@@ -24,7 +26,7 @@ export async function GET(req: Request) {
 export async function POST(req: Request) {
   const blocked = await limited(req);
   if (blocked) return blocked;
-  return handleMcpRequest(req);
+  return handleMcpRequest(req, withRequestHooks(await defaultDeps(), req));
 }
 
 export async function DELETE(req: Request) {

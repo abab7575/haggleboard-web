@@ -147,6 +147,14 @@
           ]
         }
       }
+    },
+    "expires_at": {
+      "type": "string",
+      "description": "Private offers under a store rule only: when the offer lapses. Poster only."
+    },
+    "hbp": {
+      "type": "object",
+      "description": "Private offers under a store rule only: an unsigned message shaped like the HaggleBoard Protocol v0.1 offer. Poster only."
     }
   }
 }
