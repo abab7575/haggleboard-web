@@ -1,7 +1,8 @@
 import { randomBytes, randomUUID } from "node:crypto";
 import { z } from "zod";
 import { hostMatchesDomain } from "../feeds/host.js";
-import type { Store } from "../lib/db.js";
+import type { Statement, Store } from "../lib/db.js";
+import { eventStatement, type EventContext } from "../lib/events.js";
 import { HttpError } from "../lib/http.js";
 import { bidsEnabled, hmacEqual, storeKeyHmac } from "../lib/keys.js";
 import { brandKey } from "../referee/brands.js";
@@ -48,6 +49,7 @@ export async function saveStoreRule(
   key: string | null,
   store: Store,
   env: NodeJS.ProcessEnv = process.env,
+  ctx?: EventContext,
 ): Promise<{ saved: true; store_domain: string }> {
   if (!storeRulesEnabled(env) || !bidsEnabled(env)) {
     throw new HttpError(503, "Store rules are off. They need STORE_RULES_ENABLED and BID_KEYS_ENABLED.");
@@ -74,11 +76,29 @@ export async function saveStoreRule(
   const actual = storeKeyHmac(signing, store_domain, key);
   const expected = (await store.getStoreKey(store_domain)) ?? "0".repeat(actual.length);
   if (!hmacEqual(expected, actual)) throw new HttpError(401, "That store key does not match the key issued for this store.");
-  await store.exec(
-    `INSERT INTO store_rules (store_domain, rule_json, created_at) VALUES (?, ?, ?)
+  // The rule and store.rule_set in one transaction. The floor goes only into the private JSON.
+  await store.batch([
+    [
+      `INSERT INTO store_rules (store_domain, rule_json, created_at) VALUES (?, ?, ?)
      ON CONFLICT(store_domain) DO UPDATE SET rule_json = excluded.rule_json, created_at = excluded.created_at`,
-    [store_domain, JSON.stringify(rule), new Date().toISOString()],
-  );
+      [store_domain, JSON.stringify(rule), new Date().toISOString()],
+    ],
+    eventStatement(
+      {
+        type: "store.rule_set",
+        store_domain,
+        public: {
+          covers: rule.eligible.all === true ? "all" : "some",
+          brands: rule.eligible.brands?.length ?? 0,
+          product_urls: rule.eligible.product_urls?.length ?? 0,
+          max_discount_band: discountBand(rule.beat_by_up_to_percent),
+          offer_ttl_minutes: rule.offer_ttl_minutes ?? DEFAULT_OFFER_TTL_MINUTES,
+        },
+        private: { floor_price: rule.floor.price, floor_currency: rule.floor.currency, beat_by_up_to_percent: rule.beat_by_up_to_percent },
+      },
+      ctx ?? null,
+    ),
+  ]);
   return { saved: true, store_domain };
 }
 
@@ -222,11 +242,23 @@ export function applyStoreRule(
   };
 }
 
-export async function savePrivateOffer(store: Store, offer: PrivateOffer): Promise<void> {
-  await store.exec(
+export function privateOfferStatement(offer: PrivateOffer): Statement {
+  return [
     "INSERT INTO private_offers (id, request_id, store_domain, offer_json, created_at, expires_at) VALUES (?, ?, ?, ?, ?, ?)",
     [offer.id, offer.request_id, offer.store_domain, JSON.stringify(offer), offer.created_at, offer.expires_at],
-  );
+  ];
+}
+
+export async function savePrivateOffer(store: Store, offer: PrivateOffer): Promise<void> {
+  await store.batch([privateOfferStatement(offer)]);
+}
+
+/** A coarse band for a rule's maximum discount. The floor itself is never in a public field. */
+function discountBand(percent: number): string {
+  if (percent <= 5) return "0_5";
+  if (percent <= 10) return "5_10";
+  if (percent <= 20) return "10_20";
+  return "20_plus";
 }
 
 /** Live (not expired) private offers for one request. Callers must only show these to the poster. */

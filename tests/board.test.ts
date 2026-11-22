@@ -387,7 +387,7 @@ describe("mcp", () => {
 
     const tools = await call("tools/list", {}, 2);
     const names = tools.body.result.tools.map((tool: { name: string }) => tool.name).sort();
-    expect(names).toEqual(["get_offers", "post_request", "search_products"]);
+    expect(names).toEqual(["get_offers", "get_result", "post_request", "report_outcome", "search_products"]);
 
     const offers = await call(
       "tools/call",

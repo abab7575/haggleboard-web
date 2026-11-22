@@ -18,6 +18,20 @@ import { defaultOrigin } from "./origin.js";
 import { getWatchRun, listWatchOffers, type WatchRun } from "./watch-store.js";
 import { listPrivateOffers, type PrivateOffer } from "../watcher/store-rules.js";
 import { productMatches } from "../referee/match.js";
+import {
+  AUCTION_MAX_SECONDS,
+  AUCTION_MIN_SECONDS,
+  clampWindow,
+  eventsWithLazyClose,
+  offerEvents,
+  offersFromEvents,
+  posterAuction,
+  windowFor,
+  windowFromEvents,
+  type IncomingOffer,
+} from "./auction.js";
+import { eventStatement, requestEvents, requestIsInternal, serviceContext, type EventContext, type NewEvent } from "./events.js";
+import { scrubPublicText as scrubText } from "./privacy.js";
 
 export type Deps = {
   loadVariants: () => Promise<CatalogVariant[]>;
@@ -26,7 +40,24 @@ export type Deps = {
   origin?: RequestOrigin;
   /** Called after a request is stored. The app routes use it to run the watcher when WATCHER_INLINE is on. */
   afterPost?: (request: { id: string; need: ResolvedNeed; origin: RequestOrigin }) => void;
+  /** Who is calling, for the event log (lib/events.ts). Defaults to our own service traffic. */
+  context?: EventContext;
 };
+
+function contextOf(deps: Deps): EventContext {
+  return deps.context ?? serviceContext();
+}
+
+const RESERVED_HANDLES = new Set(["admin", "haggleboard", "anonymous", "unknown", "internal", "test", "api", "root", "support"]);
+
+/** An optional public name an agent can post under, for its scorecard. Not a person's name or contact. */
+export const handleSchema = z
+  .string()
+  .trim()
+  .toLowerCase()
+  .regex(/^[a-z0-9][a-z0-9_-]{2,31}$/, "handle must be 3 to 32 letters, digits, - or _")
+  .refine((value) => !/\d{7,}/.test(value), "handle must not look like a phone number")
+  .refine((value) => !RESERVED_HANDLES.has(value), "that handle is reserved");
 
 const DAY_MS_LOCAL = 24 * 60 * 60 * 1000;
 
@@ -88,6 +119,8 @@ const needSchema = z.object({
   limit: z.number().int().min(1).max(50).optional(),
   request_id: z.string().uuid().optional(),
   delete_token: z.string().trim().min(16).max(200).optional(),
+  auction_seconds: z.number().int().min(AUCTION_MIN_SECONDS).max(AUCTION_MAX_SECONDS).optional(),
+  handle: handleSchema.optional(),
 });
 
 const bidSchema = z.object({
@@ -151,19 +184,29 @@ export async function postRequest(input: unknown, deps: Deps) {
   const need = parseNeed(body);
   assertPostable(need);
   const id = randomUUID();
-  const created_at = new Date().toISOString();
+  const now = Date.now();
+  const created_at = new Date(now).toISOString();
   const delete_token = newDeleteToken();
   let persisted = false;
   const origin = deps.origin ?? defaultOrigin();
+  const ctx = contextOf(deps);
+  const window = windowFor(created_at, clampWindow(body.auction_seconds));
   if (deps.store.kind !== "unavailable") {
     try {
-      await deps.store.saveRequest({
-        id,
-        need_json: JSON.stringify(need),
-        created_at,
-        delete_token_hmac: deleteTokenHmac(deleteTokenKey(), id, delete_token),
-        origin,
-      });
+      const snapshot = snapshotOffers(need, await liveVariants(deps));
+      const opened = postedEvents(id, need, window, ctx, body.handle ?? null, created_at);
+      const offered = offerEvents(id, window, [], snapshot, now).events;
+      // The request, request.posted, request.holding, and the opening offers: one transaction.
+      await deps.store.saveRequest(
+        {
+          id,
+          need_json: JSON.stringify(need),
+          created_at,
+          delete_token_hmac: deleteTokenHmac(deleteTokenKey(), id, delete_token),
+          origin,
+        },
+        [...opened, ...offered].map((event) => eventStatement(event, ctx)),
+      );
       persisted = true;
     } catch (error) {
       if (!(error instanceof StoreUnavailableError)) throw error;
@@ -171,6 +214,7 @@ export async function postRequest(input: unknown, deps: Deps) {
   }
   if (persisted) deps.afterPost?.({ id, need, origin });
   const result = await collectOffers(need, persisted ? id : null, deps, body.limit ?? 20, "poster");
+  const auction = persisted ? posterAuction(await requestEvents(deps.store, id)) : null;
   return {
     id,
     persisted,
@@ -178,16 +222,155 @@ export async function postRequest(input: unknown, deps: Deps) {
     delete_token: persisted ? delete_token : null,
     board_url: persisted ? `/r/${id}` : null,
     need,
+    handle: persisted ? (body.handle ?? null) : null,
     offers: result.offers,
     omitted_unavailable: result.omitted_unavailable,
-    hint: needHint(need, result.offers.length),
+    auction: auction ? { ...auction, ...pollHints(id) } : null,
+    hint: needHint(need, result.offers.length, persisted),
     privacy: PRIVACY_NOTE,
     checkout: "store_site" as const,
     disclaimer: DISCLAIMER,
   };
 }
 
-function needHint(need: ResolvedNeed, offers: number): string | null {
+function pollHints(id: string) {
+  return {
+    next: "Call get_result with request_id and delete_token. Each call waits up to 25 seconds and returns the winner once the window has closed.",
+    result_url: `/api/requests/${id}/result`,
+    public_stream: `/api/requests/${id}/stream`,
+    public_events: `/api/requests/${id}/events`,
+  };
+}
+
+/** Public prices already in the snapshot, one per store: the auction's opening field. */
+function snapshotOffers(need: ResolvedNeed, variants: CatalogVariant[]): IncomingOffer[] {
+  if (!need.brand && !need.model && !need.gtin) return [];
+  const best = new Map<string, CatalogVariant>();
+  for (const variant of matchVariants(variants, productOnly(need), false)) {
+    const current = best.get(variant.store_domain);
+    if (
+      !current ||
+      (variant.available && !current.available) ||
+      (variant.available === current.available && variant.price_cents < current.price_cents)
+    ) {
+      best.set(variant.store_domain, variant);
+    }
+  }
+  return [...best.values()].slice(0, 20).map((variant) => variantOffer(variant, "snapshot"));
+}
+
+export function variantOffer(variant: CatalogVariant, via: string): IncomingOffer {
+  return {
+    store_domain: variant.store_domain,
+    source: "public_price",
+    via,
+    price_cents: variant.price_cents,
+    currency: variant.currency,
+    available: variant.available,
+    product_url: variant.product_url,
+    title: variant.title,
+    expires_at: null,
+  };
+}
+
+const MARKETPLACES = ["amazon", "ebay", "walmart", "target", "etsy", "temu", "aliexpress", "zalando", "bestbuy", "rakuten", "mercadolibre"];
+
+/** marketplace, brand_site, retailer or unknown. The seller's own name is never logged. */
+export function sellerClass(seller: string | null, brand: string | null): "marketplace" | "brand_site" | "retailer" | "unknown" {
+  if (!seller) return "unknown";
+  const key = seller.toLowerCase().replace(/[^a-z0-9]/g, "");
+  if (MARKETPLACES.some((name) => key.includes(name))) return "marketplace";
+  const brandKeyValue = (brand ?? "").toLowerCase().replace(/[^a-z0-9]/g, "");
+  if (brandKeyValue && key.includes(brandKeyValue)) return "brand_site";
+  return "retailer";
+}
+
+function postedEvents(
+  id: string,
+  need: ResolvedNeed,
+  window: ReturnType<typeof windowFor>,
+  ctx: EventContext,
+  handle: string | null,
+  at: string,
+): NewEvent[] {
+  const pub = publicNeed(need);
+  const events: NewEvent[] = [
+    {
+      type: "request.posted",
+      at,
+      request_id: id,
+      public: {
+        label: pub.label,
+        brand: pub.brand,
+        model: pub.model,
+        gtin: pub.gtin,
+        gender: pub.gender,
+        size: pub.size,
+        color: pub.color,
+        category: pub.category,
+        channel: ctx.channel,
+        agent_kind: ctx.agent.kind,
+        signature_agent: ctx.agent.signature_agent,
+        signature_verified: false,
+        stated_cap: need.max_price_cents != null,
+        holding: need.holding != null,
+        window_seconds: window.window_seconds,
+        deadline: window.deadline,
+        handle,
+      },
+      private: {
+        max_price_cents: need.max_price_cents,
+        currency: need.currency,
+        country: need.country,
+        region: need.region,
+        quantity: need.quantity,
+        attributes: need.attributes,
+      },
+    },
+  ];
+  if (need.holding) {
+    events.push({
+      type: "request.holding",
+      at,
+      request_id: id,
+      public: {},
+      private: {
+        seller_class: sellerClass(need.holding.seller, need.brand),
+        price_cents: need.holding.price_cents,
+        currency: need.holding.currency,
+        delivered: need.holding.delivered,
+        delivery_by: need.holding.delivery_by,
+      },
+    });
+  }
+  return events;
+}
+
+/**
+ * Writes offers for a request into the log, with any lead change, in one transaction together with
+ * `also` (the row the offers came from). Used by the watcher, store rules and the bid API.
+ */
+export async function recordOffers(
+  store: Store,
+  requestId: string,
+  incoming: IncomingOffer[],
+  opts: { now?: number; also?: Array<[string, unknown[]]>; agent_class?: string } = {},
+): Promise<void> {
+  if (store.kind === "unavailable") return;
+  const events = await requestEvents(store, requestId);
+  const window = windowFromEvents(events);
+  const internal = await requestIsInternal(store, requestId);
+  const made = incoming.length
+    ? offerEvents(requestId, window, offersFromEvents(events), incoming, opts.now ?? Date.now()).events
+    : [];
+  await store.batch([
+    ...(opts.also ?? []),
+    ...made.map((event) => eventStatement({ ...event, internal, agent_class: opts.agent_class ?? "haggleboard" }, null)),
+  ]);
+}
+
+function needHint(need: ResolvedNeed, offers: number, persisted = true): string | null {
+  if (!persisted) return "Nothing was stored: this server has no database, so there is no auction and no request page.";
   if (!need.brand && !need.model && !need.gtin) {
     return "Add a brand and model, or a barcode (gtin), so stores can match it.";
   }
@@ -211,6 +394,19 @@ export async function getOffers(input: unknown, deps: Deps) {
     const poster = body.delete_token ? posterTokenMatches(row, body.delete_token) : false;
     const view: View = poster ? "poster" : "public";
     const result = await collectOffers(stored, body.request_id, deps, body.limit ?? 20, view);
+    const events = await eventsWithLazyClose(deps.store, body.request_id);
+    const window = windowFromEvents(events);
+    const auction =
+      view === "poster"
+        ? posterAuction(events)
+        : window
+          ? {
+              status: events.some((event) => event.type === "auction.closed") ? ("closed" as const) : ("open" as const),
+              deadline: window.deadline,
+              public_stream: `/api/requests/${body.request_id}/stream`,
+              public_events: `/api/requests/${body.request_id}/events`,
+            }
+          : null;
     return {
       request_id: body.request_id,
       view,
@@ -218,6 +414,7 @@ export async function getOffers(input: unknown, deps: Deps) {
       need: result.need,
       offers: result.offers,
       omitted_unavailable: result.omitted_unavailable,
+      auction,
       watch: watchView(await getWatchRun(deps.store, body.request_id)),
       checkout: "store_site" as const,
       disclaimer: DISCLAIMER,
@@ -247,6 +444,106 @@ function posterTokenMatches(row: { id: string; delete_token_hmac: string | null 
     return false;
   }
   return hmacEqual(row.delete_token_hmac, deleteTokenHmac(key, row.id, token));
+}
+
+export const RESULT_MAX_WAIT_SECONDS = 25;
+const RESULT_DEFAULT_WAIT_SECONDS = 20;
+
+const resultSchema = z.object({
+  request_id: z.string().uuid(),
+  delete_token: z.string().trim().min(16).max(200),
+  wait_seconds: z.number().int().min(0).max(RESULT_MAX_WAIT_SECONDS).optional(),
+});
+
+async function posterRow(deps: Deps, requestId: string, token: string) {
+  const row = await deps.store.getRequest(requestId);
+  if (!row) throw new HttpError(404, "No stored request with that id");
+  if (!posterTokenMatches(row, token)) throw new HttpError(403, "That delete_token does not match this request");
+  return { row, need: normalizeStoredNeed(JSON.parse(row.need_json) as Partial<ResolvedNeed>) };
+}
+
+/**
+ * The poster's one call after posting: the current standing with amounts, and once the window has
+ * closed, the winning offer with its checkout link. Waits up to wait_seconds (default 20) for the close.
+ */
+export async function getResult(
+  input: unknown,
+  deps: Deps,
+  opts: { sleep?: (ms: number) => Promise<void>; now?: () => number } = {},
+) {
+  const parsed = resultSchema.safeParse(input);
+  if (!parsed.success) throw new HttpError(400, "Send request_id and delete_token from post_request");
+  const { request_id, delete_token } = parsed.data;
+  await posterRow(deps, request_id, delete_token);
+  const now = opts.now ?? Date.now;
+  const sleep = opts.sleep ?? ((ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms)));
+  const until = now() + (parsed.data.wait_seconds ?? RESULT_DEFAULT_WAIT_SECONDS) * 1000;
+  for (;;) {
+    const events = await eventsWithLazyClose(deps.store, request_id, { now: now() });
+    const auction = posterAuction(events, now());
+    if (!auction || auction.status === "closed" || now() >= until) {
+      const outcome = [...events].reverse().find((event) => event.type === "outcome.reported");
+      return {
+        request_id,
+        view: "poster" as const,
+        auction,
+        outcome_reported: outcome ? String(outcome.public.outcome) : null,
+        next: !auction
+          ? "This request has no auction window (it was posted before auctions existed)."
+          : auction.status === "closed"
+            ? auction.winner
+              ? "Send your user to winner.checkout_url and let them check out on the store's own site. Then call report_outcome."
+              : "No store answered in time. Call report_outcome with did_not_buy or bought_elsewhere."
+            : `Still open, about ${auction.seconds_left} seconds left. Call get_result again.`,
+        checkout: "store_site" as const,
+        disclaimer: DISCLAIMER,
+      };
+    }
+    const closesAt = Date.parse(auction.deadline) + 2_100;
+    await sleep(Math.max(250, Math.min(2_000, until - now(), closesAt - now())));
+  }
+}
+
+export const OUTCOMES = ["bought_at_winner", "bought_elsewhere", "did_not_buy"] as const;
+
+const outcomeSchema = z.object({
+  request_id: z.string().uuid(),
+  delete_token: z.string().trim().min(16).max(200),
+  outcome: z.enum(OUTCOMES),
+  reason: z.string().trim().max(200).optional(),
+});
+
+/** What the posting agent did. The latest report counts. The reason is private and dropped after 30 days. */
+export async function reportOutcome(input: unknown, deps: Deps) {
+  const parsed = outcomeSchema.safeParse(input);
+  if (!parsed.success) {
+    throw new HttpError(400, `Send request_id, delete_token and outcome (${OUTCOMES.join(", ")}), and optionally a short reason`);
+  }
+  const { request_id, delete_token, outcome } = parsed.data;
+  if (deps.store.kind === "unavailable") throw new HttpError(503, "Reporting an outcome needs DATABASE_URL.");
+  await posterRow(deps, request_id, delete_token);
+  const events = await eventsWithLazyClose(deps.store, request_id);
+  const closed = events.find((event) => event.type === "auction.closed");
+  if (outcome === "bought_at_winner" && closed && !closed.public.winner) {
+    throw new HttpError(409, "This auction closed with no winner. Use bought_elsewhere or did_not_buy.");
+  }
+  const ctx = contextOf(deps);
+  const internal = (await requestIsInternal(deps.store, request_id)) || ctx.internal;
+  const reason = scrubText(parsed.data.reason ?? null);
+  await deps.store.batch([
+    eventStatement(
+      {
+        type: "outcome.reported",
+        request_id,
+        store_domain: outcome === "bought_at_winner" ? (closed?.store_domain ?? null) : null,
+        internal,
+        public: { outcome, auction_closed: Boolean(closed), reason_given: reason != null },
+        private: reason ? { reason } : {},
+      },
+      ctx,
+    ),
+  ]);
+  return { request_id, recorded: true, outcome, disclaimer: DISCLAIMER };
 }
 
 export async function searchProducts(input: unknown, deps: Deps) {
@@ -333,14 +630,42 @@ export async function submitBid(input: unknown, key: string | null, deps: Deps, 
   const created_at = new Date().toISOString();
   const stored: StoredBid = { ...parsed.data, id, verified: true };
   try {
-    await deps.store.saveBid({
-      id,
-      request_id: parsed.data.request_id ?? null,
-      store_domain: parsed.data.store_domain,
-      key_hash: actual,
-      bid_json: JSON.stringify(stored),
-      created_at,
-    });
+    if (parsed.data.request_id) {
+      // The bid row and its offer.made (amount private) in one transaction.
+      const offer = bidToOffer(stored, created_at);
+      await recordOffers(
+        deps.store,
+        parsed.data.request_id,
+        [
+          {
+            store_domain: offer.store_domain,
+            source: "store_bid",
+            via: "bid_api",
+            price_cents: offer.price_cents,
+            currency: offer.currency,
+            available: offer.available,
+            product_url: offer.product_url,
+            title: offer.title,
+            expires_at: null,
+            delivery_days: offer.delivery_days,
+            returns_days: offer.returns_days,
+          },
+        ],
+        {
+          also: [[INSERT_BID_SQL, [id, parsed.data.request_id, parsed.data.store_domain, actual, JSON.stringify(stored), created_at]]],
+          agent_class: contextOf(deps).agent.agent_class,
+        },
+      );
+    } else {
+      await deps.store.saveBid({
+        id,
+        request_id: null,
+        store_domain: parsed.data.store_domain,
+        key_hash: actual,
+        bid_json: JSON.stringify(stored),
+        created_at,
+      });
+    }
   } catch (error) {
     if (error instanceof StoreUnavailableError) {
       throw new HttpError(503, "Bids need DATABASE_URL. The offer shape was valid, and nothing was stored.");
@@ -362,17 +687,32 @@ export async function issueStoreKey(domain: string, deps: Deps, env: NodeJS.Proc
   if (!/^[a-z0-9.-]+\.[a-z]{2,}$/.test(normalized)) throw new HttpError(400, "store_domain is not a hostname");
   const raw = newStoreKey();
   try {
-    await deps.store.saveStoreKey({
-      store_domain: normalized,
-      key_hmac: storeKeyHmac(signing, normalized, raw),
-      created_at: new Date().toISOString(),
-    });
+    const now = new Date();
+    const first = (
+      await deps.store.select("SELECT MIN(at) AS at FROM events WHERE type = 'store.notified' AND store_domain = ?", [normalized])
+    )[0]?.at;
+    // The key and store.claimed in one transaction.
+    await deps.store.batch([
+      [UPSERT_STORE_KEY_SQL, [normalized, storeKeyHmac(signing, normalized, raw), now.toISOString()]],
+      eventStatement(
+        {
+          type: "store.claimed",
+          store_domain: normalized,
+          public: { since_first_notification_ms: first == null ? null : now.getTime() - Date.parse(String(first)) },
+        },
+        contextOf(deps),
+      ),
+    ]);
   } catch (error) {
     if (error instanceof StoreUnavailableError) throw new HttpError(503, "Issuing a key needs a database.");
     throw error;
   }
   return raw;
 }
+
+const INSERT_BID_SQL = `INSERT INTO bids (id, request_id, store_domain, key_hash, bid_json, created_at) VALUES (?, ?, ?, ?, ?, ?)`;
+const UPSERT_STORE_KEY_SQL = `INSERT INTO store_keys (store_domain, key_hmac, created_at) VALUES (?, ?, ?)
+ON CONFLICT(store_domain) DO UPDATE SET key_hmac = excluded.key_hmac, created_at = excluded.created_at`;
 
 const REPORTS_TO_HIDE = 3;
 const AUTO_HIDES_PER_DAY = 20;

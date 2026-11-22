@@ -2,6 +2,7 @@ import { emptyOptions, errorResponse, json, readJson, readStoreKey } from "../..
 import { assertWithinRateLimit } from "../../../../lib/rate-limit";
 import { defaultDeps } from "../../../../lib/service";
 import { bidsEnabled } from "../../../../lib/keys";
+import { eventContext } from "../../../../lib/events";
 import { storeRulesEnabled } from "../../../../watcher/constants";
 import { saveStoreRule } from "../../../../watcher/store-rules";
 
@@ -34,7 +35,7 @@ export async function POST(req: Request) {
   try {
     const deps = await defaultDeps();
     await assertWithinRateLimit(req, deps.store);
-    const result = await saveStoreRule(await readJson(req), readStoreKey(req.headers), deps.store);
+    const result = await saveStoreRule(await readJson(req), readStoreKey(req.headers), deps.store, process.env, eventContext(req, "api"));
     return json(result, 201);
   } catch (error) {
     return errorResponse(error);

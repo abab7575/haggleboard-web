@@ -5,6 +5,7 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { beforeEach, describe, expect, it } from "vitest";
 import { DEFAULT_GLOBAL_INTERVAL_MS, USER_AGENT } from "../feeds/constants";
 import { openPglite } from "../lib/db";
+import { serviceContext } from "../lib/events";
 import { requestOrigin } from "../lib/origin";
 import { boardFeed, getOffers, issueStoreKey, postRequest, type Deps } from "../lib/service";
 import { getFetchState } from "../lib/watch-store";
@@ -372,10 +373,16 @@ describe("notify-store hook (off by default, never sends)", () => {
     expect((await watch(await postRequest(need, deps), "internal")).notifications.every((item) => !item.queued)).toBe(true);
     expect(await listStoreNotifications(store)).toEqual([]);
 
-    const first = await postRequest(need, deps);
+    // Origin "outside" but marked internal in the event log (for example by HB_INTERNAL_KEYS): no queue.
+    const keyed = await postRequest(need, deps);
+    expect((await watch(keyed, "outside")).notifications.every((item) => !item.queued)).toBe(true);
+    expect(await listStoreNotifications(store)).toEqual([]);
+
+    const outside = { ...deps, context: { ...serviceContext(), internal: false } };
+    const first = await postRequest(need, outside);
     const firstRun = await watch(first, "outside");
     expect(firstRun.notifications).toEqual([{ store_domain: "polite.com", queued: true, reason: "queued" }]);
-    const second = await postRequest(need, deps);
+    const second = await postRequest(need, outside);
     const secondRun = await watch(second, "outside");
     expect(secondRun.notifications).toEqual([{ store_domain: "polite.com", queued: false, reason: "already queued once" }]);
     const rows = await listStoreNotifications(store);

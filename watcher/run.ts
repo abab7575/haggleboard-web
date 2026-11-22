@@ -6,12 +6,15 @@ import { createPoliteScheduler, type PoliteScheduler } from "../feeds/politeness
 import { domainBlocked, readQueue } from "../feeds/queue.js";
 import { loadRemoved, type StoreSeed } from "../feeds/seeds.js";
 import type { RequestOrigin, Store } from "../lib/db.js";
+import type { Statement } from "../lib/db.js";
+import { eventStatement, requestIsInternal, type NewEvent } from "../lib/events.js";
+import { recordOffers, variantOffer } from "../lib/service.js";
 import {
   claimWatchRun,
   finishWatchRun,
   getFetchState,
-  recordFetch,
-  saveWatchOffers,
+  recordFetchStatement,
+  watchOfferStatements,
   type WatchStoreResult,
   type WatchSummary,
 } from "../lib/watch-store.js";
@@ -29,7 +32,7 @@ import {
   WATCH_ROBOTS_REQUESTS_PER_STORE,
 } from "./constants.js";
 import { queueStoreNotifications, type NotificationDecision } from "./notify.js";
-import { applyStoreRule, getStoreRule, savePrivateOffer, storeHasClaimed } from "./store-rules.js";
+import { applyStoreRule, getStoreRule, privateOfferStatement, storeHasClaimed } from "./store-rules.js";
 
 type FetchLike = (url: string, init: RequestInit) => Promise<Response>;
 
@@ -128,6 +131,24 @@ export async function runWatch(
     seeds: opts.seeds,
   });
   summary.arc_calls = arc?.calls() ?? 0;
+  const internal = await requestIsInternal(store, request.id, request.origin !== "outside");
+  const watcherEvent = (event: NewEvent): Statement =>
+    eventStatement({ ...event, request_id: request.id, internal, agent_class: "haggleboard" }, null);
+  await store.batch(
+    candidates.map((candidate) =>
+      watcherEvent({
+        type: "store.matched",
+        store_domain: candidate.domain,
+        at: new Date(now()).toISOString(),
+        public: {
+          found_via: candidate.source === "brand" ? "brand_site" : candidate.source === "arc" ? "arc" : "seed_list",
+          checkout_route_known: candidate.checkout_route_known,
+          readable: candidate.fetchable,
+          skip_reason: candidate.skip_reason,
+        },
+      }),
+    ),
+  );
 
   const scheduler = opts.scheduler ?? watcherScheduler({ now, sleep: opts.sleep });
   const baseFetch: FetchLike = opts.fetch ?? ((url, init) => fetch(url, init));
@@ -175,6 +196,7 @@ export async function runWatch(
       return baseFetch(url, init);
     };
 
+    const readStarted = now();
     const crawl = await crawlStore({
       seed: { domain: candidate.fetch_host, region: "other", country: null, currency: candidate.currency },
       pages: 1,
@@ -190,19 +212,41 @@ export async function runWatch(
       skipCurrencyLookup: true,
     });
     result.fetches = storeFetches;
+    if (stopsTheRun(crawl.stop_reason)) hardStops += 1;
+
+    const variants = crawl.variants.map((variant) => ({ ...variant, store_domain: candidate.domain }));
+    const matches =
+      crawl.stopped && crawl.variants.length === 0
+        ? []
+        : variants.filter((variant) => productMatches(variant, { ...need, max_price_cents: null, currency: null }, true));
+    const cheapest = [...matches].sort((a, b) => a.price_cents - b.price_cents)[0] ?? null;
+    // The fetch state and store.read in one transaction.
     if (storeFetches > 0) {
       const backoff = crawl.backoff_until ? { until: crawl.backoff_until, reason: crawl.stop_reason ?? "backoff" } : null;
-      await recordFetch(store, candidate.domain, new Date(now()).toISOString(), backoff);
+      const at = new Date(now()).toISOString();
+      await store.batch([
+        recordFetchStatement(candidate.domain, at, backoff),
+        watcherEvent({
+          type: "store.read",
+          store_domain: candidate.domain,
+          at,
+          public: {
+            outcome: readOutcome(crawl.stopped && crawl.variants.length === 0 ? crawl.stop_reason : null, matches.length > 0),
+            ms: Math.max(0, now() - readStarted),
+            fetches: storeFetches,
+            public_price: cheapest ? cheapest.price : null,
+            currency: cheapest ? cheapest.currency : null,
+            in_stock: cheapest ? cheapest.available : null,
+          },
+        }),
+      ]);
     }
-    if (stopsTheRun(crawl.stop_reason)) hardStops += 1;
 
     if (crawl.stopped && crawl.variants.length === 0) {
       result.reason = capped ? "would need more than one request (redirect)" : skipReason(crawl.stop_reason);
       continue;
     }
-    const variants = crawl.variants.map((variant) => ({ ...variant, store_domain: candidate.domain }));
-    const matches = variants.filter((variant) => productMatches(variant, { ...need, max_price_cents: null, currency: null }, true));
-    if (matches.length === 0) {
+    if (!cheapest) {
       result.status = "no_match";
       result.reason = "the store's first feed page did not list this product";
       continue;
@@ -211,14 +255,36 @@ export async function runWatch(
     result.reason = candidate.currency ? null : "currency not known; check the store's page";
     result.matched = matches.length;
     found.push(...matches);
+    // The store's price rows and its offer.made (plus any lead.changed) in one transaction.
+    await recordOffers(store, request.id, [variantOffer(cheapest, "watcher")], {
+      now: now(),
+      also: watchOfferStatements(request.id, matches),
+    });
 
     if (rulesOn && need.holding && (await storeHasClaimed(store, candidate.domain))) {
       const rule = await getStoreRule(store, candidate.domain);
       if (rule) {
-        const cheapest = [...matches].sort((a, b) => a.price_cents - b.price_cents)[0]!;
         const decision = applyStoreRule(rule, cheapest, need, request.id, now());
         if (decision.offer) {
-          await savePrivateOffer(store, decision.offer);
+          const offer = decision.offer;
+          await recordOffers(
+            store,
+            request.id,
+            [
+              {
+                store_domain: offer.store_domain,
+                source: "private_offer",
+                via: "store_rule",
+                price_cents: offer.price_cents,
+                currency: offer.currency,
+                available: true,
+                product_url: offer.product_url,
+                title: offer.title,
+                expires_at: offer.expires_at,
+              },
+            ],
+            { now: now(), also: [privateOfferStatement(offer)] },
+          );
           privateOffers += 1;
         }
       }
@@ -226,7 +292,6 @@ export async function runWatch(
   }
   if (hardStops >= 2) summary.stopped = "a second rate limit or bot challenge";
 
-  await saveWatchOffers(store, request.id, found);
   const carrying = [...new Set(found.map((variant) => variant.store_domain))];
   const notifications = await queueStoreNotifications(
     store,
@@ -236,6 +301,27 @@ export async function runWatch(
   );
   await finishWatchRun(store, request.id, summary, new Date(now()).toISOString());
   return { request_id: request.id, ran: true, summary, offers: found, private_offers: privateOffers, notifications };
+}
+
+/** DATA.md outcomes: found, not found, blocked, robots disallowed, timeout (plus unreadable). */
+function readOutcome(stop: string | null, matched: boolean): string {
+  if (!stop) return matched ? "found" : "not_found";
+  switch (stop) {
+    case "robots":
+    case "crawl-delay":
+      return "robots_disallowed";
+    case "429":
+    case "challenge":
+    case "forbidden":
+      return "blocked";
+    case "timeout":
+    case "network":
+      return "timeout";
+    case "not-found":
+      return "not_found";
+    default:
+      return "unreadable";
+  }
 }
 
 function skipReason(stop: string | null): string {

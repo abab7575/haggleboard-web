@@ -1,4 +1,4 @@
-import type { Store } from "./db.js";
+import type { Statement, Store } from "./db.js";
 import type { CatalogVariant } from "../referee/types.js";
 
 /** SQL for the watcher tables. Works on SQLite, Postgres and PGlite through Store.exec/select. */
@@ -71,14 +71,16 @@ export async function finishWatchRun(store: Store, requestId: string, summary: W
   ]);
 }
 
-export async function saveWatchOffers(store: Store, requestId: string, variants: CatalogVariant[]): Promise<void> {
-  for (const variant of variants) {
-    await store.exec(
-      `INSERT INTO watch_offers (id, request_id, store_domain, variant_json, observed_at) VALUES (?, ?, ?, ?, ?)
+export function watchOfferStatements(requestId: string, variants: CatalogVariant[]): Statement[] {
+  return variants.map((variant) => [
+    `INSERT INTO watch_offers (id, request_id, store_domain, variant_json, observed_at) VALUES (?, ?, ?, ?, ?)
        ON CONFLICT(id) DO UPDATE SET variant_json = excluded.variant_json, observed_at = excluded.observed_at`,
-      [`${requestId}:${variant.id}`, requestId, variant.store_domain, JSON.stringify(variant), variant.observed_at],
-    );
-  }
+    [`${requestId}:${variant.id}`, requestId, variant.store_domain, JSON.stringify(variant), variant.observed_at],
+  ]);
+}
+
+export async function saveWatchOffers(store: Store, requestId: string, variants: CatalogVariant[]): Promise<void> {
+  await store.batch(watchOfferStatements(requestId, variants));
 }
 
 export async function listWatchOffers(store: Store, requestIds: string[]): Promise<Map<string, CatalogVariant[]>> {
@@ -117,14 +119,18 @@ export async function recordFetch(
   at: string,
   backoff: { until: string; reason: string } | null,
 ): Promise<void> {
-  await store.exec(
+  await store.batch([recordFetchStatement(domain, at, backoff)]);
+}
+
+export function recordFetchStatement(domain: string, at: string, backoff: { until: string; reason: string } | null): Statement {
+  return [
     `INSERT INTO store_fetch_state (store_domain, last_fetch_at, backoff_until, backoff_reason) VALUES (?, ?, ?, ?)
      ON CONFLICT(store_domain) DO UPDATE SET
        last_fetch_at = excluded.last_fetch_at,
        backoff_until = COALESCE(excluded.backoff_until, store_fetch_state.backoff_until),
        backoff_reason = COALESCE(excluded.backoff_reason, store_fetch_state.backoff_reason)`,
     [domain, at, backoff?.until ?? null, backoff?.reason ?? null],
-  );
+  ];
 }
 
 /** Requests the worker should watch: recent, not hidden, not yet watched. */

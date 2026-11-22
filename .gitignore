@@ -14,6 +14,7 @@ feeds/jobs/queue.lock
 .env.local
 .env.*.local
 coverage
+exports
 tsconfig.tsbuildinfo
 .DS_Store
 *.log

@@ -180,6 +180,64 @@ describe("no private field on a public surface", () => {
   });
 });
 
+describe("no private field in the event stream, stats or scorecards", () => {
+  const params = () => ({ params: Promise.resolve({ id: posted.id }) });
+
+  it("GET /api/requests/{id}/events", async () => {
+    const { GET } = await import("../app/api/requests/[id]/events/route");
+    const body = await (await GET(new Request(`http://haggleboard.test/api/requests/${posted.id}/events`), params())).text();
+    expect(body).toContain("auction.opened");
+    assertNoPrivate("/api/requests/{id}/events", body);
+    expect(body).not.toMatch(/"private"|caller_hash|"internal"/);
+  });
+
+  it("GET /api/requests/{id}/stream", async () => {
+    const { GET } = await import("../app/api/requests/[id]/stream/route");
+    const controller = new AbortController();
+    const response = await GET(new Request(`http://haggleboard.test/api/requests/${posted.id}/stream`, { signal: controller.signal }), params());
+    const reader = response.body!.getReader();
+    let text = "";
+    for (let i = 0; i < 4; i += 1) text += new TextDecoder().decode((await reader.read()).value ?? new Uint8Array());
+    controller.abort();
+    await reader.cancel();
+    expect(text).toContain("store.joined");
+    assertNoPrivate("/api/requests/{id}/stream", text);
+  });
+
+  it("GET /api/stats and GET /api/agents/{handle}", async () => {
+    const stats = await import("../app/api/stats/route");
+    assertNoPrivate("/api/stats", await (await stats.GET()).text());
+    const agents = await import("../app/api/agents/[handle]/route");
+    const missing = await agents.GET(new Request("http://haggleboard.test/api/agents/nobody"), { params: Promise.resolve({ handle: "nobody" }) });
+    expect(missing.status).toBe(404);
+  });
+
+  it("the result route refuses a missing or wrong token", async () => {
+    const { GET } = await import("../app/api/requests/[id]/result/route");
+    const none = await GET(new Request(`http://haggleboard.test/api/requests/${posted.id}/result?wait=0`), params());
+    expect(none.status).toBe(400);
+    const wrong = await GET(
+      new Request(`http://haggleboard.test/api/requests/${posted.id}/result?wait=0`, { headers: { "x-haggleboard-delete-token": "x".repeat(43) } }),
+      params(),
+    );
+    expect(wrong.status).toBe(403);
+    assertNoPrivate("/api/requests/{id}/result (wrong token)", await wrong.text());
+  });
+
+  it("the outcome route refuses a wrong token", async () => {
+    const { POST } = await import("../app/api/requests/[id]/outcome/route");
+    const response = await POST(
+      new Request(`http://haggleboard.test/api/requests/${posted.id}/outcome`, {
+        method: "POST",
+        headers: { "content-type": "application/json", "x-real-ip": "198.51.100.21" },
+        body: JSON.stringify({ delete_token: "x".repeat(43), outcome: "did_not_buy" }),
+      }),
+      params(),
+    );
+    expect(response.status).toBe(403);
+  });
+});
+
 describe("public listings ignore the private price cap", () => {
   it("shows the store's public price even when it is above the poster's maximum", async () => {
     const deps = await defaultDeps();

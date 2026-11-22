@@ -1,5 +1,6 @@
 import { loadRemoved } from "../feeds/seeds.js";
 import type { RequestOrigin, Store } from "../lib/db.js";
+import { eventStatement, requestIsInternal } from "../lib/events.js";
 import { notifyStoresEnabled } from "./constants.js";
 import { storeHasClaimed } from "./store-rules.js";
 
@@ -31,6 +32,9 @@ export async function queueStoreNotifications(
   if (input.origin !== "outside") {
     return input.storesCarrying.map((domain) => ({ store_domain: domain, queued: false, reason: `request origin is ${input.origin}` }));
   }
+  if (await requestIsInternal(store, input.requestId, false)) {
+    return input.storesCarrying.map((domain) => ({ store_domain: domain, queued: false, reason: "request is marked internal" }));
+  }
   const out: NotificationDecision[] = [];
   for (const raw of [...new Set(input.storesCarrying.map((d) => d.toLowerCase()))]) {
     if (removed.has(raw)) {
@@ -46,11 +50,25 @@ export async function queueStoreNotifications(
       out.push({ store_domain: raw, queued: false, reason: "already queued once" });
       continue;
     }
-    await store.exec(
-      `INSERT INTO store_notifications (store_domain, request_id, status, created_at) VALUES (?, ?, 'queued', ?)
+    // The queue row and store.notified in one transaction. Nothing is sent.
+    await store.batch([
+      [
+        `INSERT INTO store_notifications (store_domain, request_id, status, created_at) VALUES (?, ?, 'queued', ?)
        ON CONFLICT(store_domain) DO NOTHING`,
-      [raw, input.requestId, new Date().toISOString()],
-    );
+        [raw, input.requestId, new Date().toISOString()],
+      ],
+      eventStatement(
+        {
+          id: `${raw}:store.notified`,
+          type: "store.notified",
+          request_id: input.requestId,
+          store_domain: raw,
+          internal: false,
+          public: { status: "queued", sent: false },
+        },
+        null,
+      ),
+    ]);
     out.push({ store_domain: raw, queued: true, reason: "queued" });
   }
   return out;

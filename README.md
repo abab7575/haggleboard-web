@@ -149,7 +149,9 @@ Public `POST` routes and `/api/mcp` are limited to 10 requests a minute and 100 
 
 Stateless streamable HTTP at `/api/mcp`. Tools:
 
-- `post_request`: call first, before the user buys anything. Works with just `{"text": "..."}`.
+- `post_request`: call first, before the user buys anything. Works with just `{"text": "..."}`. Opens the auction window.
+- `get_result`: wait for the result of a posted request (`request_id`, `delete_token`); returns the winner with `checkout_url` once the window closes.
+- `report_outcome`: say what the user did (`bought_at_winner`, `bought_elsewhere`, `did_not_buy`).
 - `get_offers`: re-check a posted request (`request_id` plus `delete_token` for the private view), or price-check without posting.
 - `search_products`: browse the snapshot only.
 
@@ -166,6 +168,87 @@ Locally that URL is `http://localhost:3000/api/mcp`. `llms.txt` is served at `/l
 - `/q/womens-oofos-oolala-luxe-thong-size-8`
 - `/q/womens-saucony-endorphin-speed-6-size-8`
 
+## Event log
+
+**Without `DATABASE_URL` nothing is stored.** On Vercel with no database the site serves the snapshot, posts are answered but not kept, there is no auction, no request page, no event and nothing to count. Locally, with no `DATABASE_URL`, an embedded database under `data/` is used.
+
+Every step of every request goes into one append-only table, `events` (`lib/events.ts`, spec in `docs/DATA.md` on the `plan-docs` branch): `id`, `at`, `type`, `request_id`, `store_domain`, `agent_class`, `internal`, `public` (JSON), `private` (JSON), plus `caller_hash`. Indexed on `request_id`, `type`, `at` and `store_domain`. Each event is written in the same transaction as the action that caused it (`Store.batch`), on SQLite and Postgres alike.
+
+| Event | Written by | Public | Private |
+| --- | --- | --- | --- |
+| `request.posted` | `postRequest` | product fields, channel, agent kind, signed-agent host (unverified), whether a cap or holding was given, window, deadline, optional handle | cap, currency, country, region, quantity, attributes |
+| `request.holding` | `postRequest` | nothing | seller class (marketplace, retailer, brand site), price, currency, delivered, delivery date |
+| `store.matched` | watcher | how it was found (brand site, ARC, seed list), checkout route known, readable, skip reason | |
+| `store.read` | watcher | outcome (found, not_found, blocked, robots_disallowed, timeout, unreadable), ms, fetches, public price and stock | |
+| `offer.made` | snapshot at post time, watcher, store rule, bid API | source, via, currency, stock, the price only when it is a public price | amount, link, expiry |
+| `lead.changed` | whoever wrote the offer | store, source, band | amount |
+| `auction.closed` | first read after the deadline | winner store and source, band, bidders, lead changes, whether it beat the best public price | amount, link, gap to best public price, gap to the held order |
+| `outcome.reported` | `report_outcome` | outcome, whether a reason was given | reason (scrubbed, dropped after 30 days) |
+| `store.notified` | notify hook (flag off; queue only, never sent) | queued | |
+| `store.claimed` | `npm run issue-key` | time since first notification | |
+| `store.rule_set` | `POST /api/stores/rule` (flag off) | coverage, maximum discount band | floor |
+| `page.read` | `/r/{id}` | page, agent kind, referrer class | |
+
+The poster's free text is never in the log. No raw IP is stored: `caller_hash` is the same salted HMAC the rate limit uses, and the purge clears it after 30 days. Requests deleted after 30 days keep their structured events.
+
+`agent_class` comes from the User-Agent, matched against a short sourced table of AI assistants, search and training crawlers and link-preview bots in `lib/agents.ts`; otherwise `browser`, `http-library` or `unknown`. A Web Bot Auth `Signature-Agent` header is recorded as declared, with `signature_verified: false`; signatures are not checked yet.
+
+`internal` is set at write time: tests, localhost and `.test` hosts, `X-HaggleBoard-Origin: test|internal`, a `HaggleBoard-` user agent (all from `lib/origin.ts`), or a key from `HB_INTERNAL_KEYS` sent in `X-HaggleBoard-Internal-Key`. Internal events are left out of every public number and never queue a store notification. Events the watcher writes inherit the request's flag.
+
+### Backups
+
+`npm run export-events` writes the whole table to `exports/events-YYYY-MM-DD.jsonl` (gitignored; `-- --out <dir>` to choose). It only reads, writes to a temp file and renames it, so it is safe to run nightly and to re-run. The file contains private fields: keep it as carefully as the database, and copy it off the database host. Run it on the worker with the same `DATABASE_URL`, for example from cron at 03:00 UTC, then copy the file to storage you control.
+
+## Timed auctions
+
+Posting opens a window: 120 seconds by default, `auction_seconds` from 30 to 600. During it, offers arrive as `offer.made`: public prices from the snapshot at post time and from the watcher, private offers from claimed stores when `STORE_RULES_ENABLED` is on, and keyed bids. The ranking is: in stock, then the currency most offers use, then lowest price, then who offered first. Each store counts once, with its best current offer. When first place changes, `lead.changed` is written in the same transaction as the offer.
+
+There is no timer process. The first read after `deadline + 2 seconds` (any of `get_result`, `get_offers`, the request page, the stream, `/api/stats`) computes the result from offers made up to the deadline and writes `auction.closed` under the fixed id `<request id>:auction.closed` with insert-if-absent, so racing readers produce exactly one close. Offers after the deadline are still logged with `after_close: true` and never change the result. If the watcher runs from a worker rather than inline, its prices may arrive after the window.
+
+Bands, always relative to the best in-stock public price in the same currency at that moment: `at_public`, `under_0_5` (up to 5% under), `under_5_10`, `under_10_20`, `under_20_plus`, `above_public`, `not_compared` (other currency), `no_public_price`.
+
+The poster:
+
+- `POST /api/requests` (or MCP `post_request`) returns `auction`: status, deadline, seconds left, standing with amounts and links.
+- MCP `get_result` `{request_id, delete_token, wait_seconds?}` or `GET /api/requests/{id}/result?wait=20` with `X-HaggleBoard-Delete-Token`: waits up to 25 seconds, returns standing, and after the close `winner` with `checkout_url`.
+- MCP `report_outcome` `{request_id, delete_token, outcome, reason?}` or `POST /api/requests/{id}/outcome`: `bought_at_winner`, `bought_elsewhere` or `did_not_buy`.
+- Optional `handle` (3 to 32 letters, digits, `-`, `_`; no 7-digit runs, no `@`) puts the request on `GET /api/agents/{handle}`. Handles are not verified.
+
+### Public event stream
+
+`GET /api/requests/{id}/stream` is Server-Sent Events. Each connection stays open up to 25 seconds, polls the log every 1.5 seconds, sends each event with `id: <seq>` and ends with `retry: 1000`, so `EventSource` reconnects and resumes with `Last-Event-ID`. It also sends `meta` once and `tick` (`{seconds_left, status}`) on each poll. The polling fallback is `GET /api/requests/{id}/events?after=<seq>`:
+
+```json
+{
+  "request_id": "…",
+  "requestLabel": "Women Brooks Ghost 16 size 8",
+  "deadline": "2026-11-22T14:22:00.000Z",
+  "window_seconds": 120,
+  "seconds_left": 37,
+  "status": "open",
+  "now": "2026-11-22T14:21:23.000Z",
+  "events": [],
+  "poll_after_ms": 2000
+}
+```
+
+`status` is `open`, `closing` (deadline passed, close not yet written), `closed`, or `no_auction` (posted before auctions existed). The arena UI takes `{ requestLabel, deadline, events }` from this. Event shapes (`lib/stream.ts`, `PublicStreamEvent`):
+
+```ts
+{ seq, type: "auction.opened", at, deadline, window_seconds }
+{ seq, type: "store.joined", at, store, source: "public_price" | "private_offer" | "store_bid", public_price: string | null, currency: string | null }
+{ seq, type: "lead.changed", at, store, source, band, band_label }
+{ seq, type: "auction.closed", at, winner: { store, source } | null, band | null, band_label | null, bidders, lead_changes }
+```
+
+`public_price` is set only when the offer is itself a public price. A store whose first offer is private joins with `public_price: null`. The stream never carries the amount of a private offer or bid, the held order, the cap, the poster's text or anything about the caller. `seq` starts at 1 and is stable for a request.
+
+### Aggregates
+
+`GET /api/stats`: requests, distinct agent classes (with the count per class), stores answering, auctions closed, and the share of closed auctions where the winner beat the best public price. Outside traffic only. Every number is `{ value, count, as_of }`; an empty log gives zeros and `null` shares, never an estimate.
+
+`GET /api/agents/{handle}`: requests, auctions closed, how many beat the best public price, result bands and reported outcomes. No amounts.
+
 ## Deploy
 
 This repository was not deployed. To deploy it yourself on Vercel:
@@ -174,7 +257,8 @@ This repository was not deployed. To deploy it yourself on Vercel:
 2. Do not add a cron that runs the crawler. The crawl is slow on purpose and should stay on a worker you control.
 3. Environment:
    - `SITE_URL`: public origin, such as `https://haggleboard.com`
-   - `DATABASE_URL`: optional Postgres connection string. Without it, the deployment serves the committed snapshot and does not store requests or bids.
+   - `DATABASE_URL`: Postgres connection string. Without it, the deployment serves the committed snapshot and stores nothing: no requests, no bids, no event log, no auctions.
+   - `HB_INTERNAL_KEYS`: optional comma-separated keys for our own traffic (see [Event log](#event-log)).
    - `MCP_CALL_LOG_SALT`: secret used to hash client IPs for the rate limit. When `VERCEL=1`, startup fails if it is missing. Do not log raw IPs or delete tokens.
    - `DELETE_TOKEN_KEY`: required secret for delete-token HMACs. Separate from the bid signing key and the IP salt. No fallback.
    - `HB_PUBLIC`: set to `1` only on the public production deploy. Otherwise `robots.txt` disallows `/` and pages send `noindex`. A Vercel preview stays `noindex` even if this is `1`.

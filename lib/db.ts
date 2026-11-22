@@ -48,9 +48,13 @@ export type VariantRow = {
   observed_at: string;
 };
 
+/** One SQL statement with ? placeholders and its parameters. */
+export type Statement = [query: string, params: unknown[]];
+
 export type Store = {
   kind: "sqlite" | "postgres" | "pglite" | "unavailable";
-  saveRequest: (row: RequestRow) => Promise<void>;
+  /** Upserts the request and runs `also` (its events) in the same transaction. */
+  saveRequest: (row: RequestRow, also?: Statement[]) => Promise<void>;
   getRequest: (id: string) => Promise<RequestRow | null>;
   listRequests: (limit: number) => Promise<RequestRow[]>;
   saveBid: (row: BidRow & { key_hash: string }) => Promise<void>;
@@ -72,6 +76,8 @@ export type Store = {
   latestObserved: () => Promise<string | null>;
   /** Plain SQL with ? placeholders, for the watcher tables (lib/watch-store.ts). */
   exec: (query: string, params?: unknown[]) => Promise<void>;
+  /** Runs every statement in one transaction: all of them or none. Events ride along with the action that caused them. */
+  batch: (statements: Statement[]) => Promise<void>;
   select: (query: string, params?: unknown[]) => Promise<Record<string, unknown>[]>;
   close: () => Promise<void>;
 };
@@ -169,6 +175,24 @@ const STATEMENTS = [
     status TEXT NOT NULL,
     created_at TEXT NOT NULL
   )`,
+  // The event log (docs/DATA.md). Append-only: rows are never updated, except that the purge clears
+  // the hashed caller and free-text outcome reasons after RETENTION_DAYS. See lib/events.ts.
+  `CREATE TABLE IF NOT EXISTS events (
+    id TEXT PRIMARY KEY,
+    at TEXT NOT NULL,
+    type TEXT NOT NULL,
+    request_id TEXT,
+    store_domain TEXT,
+    agent_class TEXT NOT NULL,
+    internal INTEGER NOT NULL,
+    public TEXT NOT NULL,
+    private TEXT NOT NULL,
+    caller_hash TEXT
+  )`,
+  `CREATE INDEX IF NOT EXISTS idx_events_request ON events (request_id)`,
+  `CREATE INDEX IF NOT EXISTS idx_events_type ON events (type)`,
+  `CREATE INDEX IF NOT EXISTS idx_events_at ON events (at)`,
+  `CREATE INDEX IF NOT EXISTS idx_events_store ON events (store_domain)`,
 ];
 
 export const RETENTION_DAYS = 30;
@@ -184,6 +208,9 @@ export function purgePlan(now = Date.now()): Array<[string, unknown[]]> {
     ["DELETE FROM watch_runs WHERE request_id IN (SELECT id FROM requests WHERE created_at < ?)", [cutoff]],
     ["DELETE FROM private_offers WHERE request_id IN (SELECT id FROM requests WHERE created_at < ?)", [cutoff]],
     ["DELETE FROM requests WHERE created_at < ?", [cutoff]],
+    // Events stay (structured, no free text, no IP). The hashed caller and free-text reasons go.
+    ["UPDATE events SET caller_hash = NULL WHERE at < ? AND caller_hash IS NOT NULL", [cutoff]],
+    ["UPDATE events SET private = '{}' WHERE type = 'outcome.reported' AND at < ? AND private <> '{}'", [cutoff]],
     ["DELETE FROM rate_hits WHERE window_key LIKE 'd:%' AND CAST(substr(window_key, 3) AS BIGINT) < ?", [Math.floor(now / DAY) - RETENTION_DAYS]],
     ["DELETE FROM rate_hits WHERE window_key LIKE 'm:%' AND CAST(substr(window_key, 3) AS BIGINT) < ?", [Math.floor((now - RETENTION_DAYS * DAY) / 60_000)]],
   ];
@@ -275,6 +302,9 @@ export function unavailableStore(): Store {
     async exec() {
       throw new StoreUnavailableError();
     },
+    async batch() {
+      throw new StoreUnavailableError();
+    },
     async select() {
       return [];
     },
@@ -352,18 +382,25 @@ export async function openSqlite(filename: string): Promise<Store> {
   };
   const all = (query: string, params: unknown[] = []) =>
     db.prepare(query).all(...(params as never[])) as Record<string, unknown>[];
+  // better-sqlite3 is synchronous, so nothing else can run between these statements.
+  const runBatch = db.transaction((statements: Statement[]) => {
+    for (const [query, params] of statements) run(query, params);
+  });
 
   return {
     kind: "sqlite",
     async purgeExpired(now) {
       for (const [query, params] of purgePlan(now)) run(query, params);
     },
-    async saveRequest(row) {
+    async saveRequest(row, also = []) {
       for (const [query, params] of purgePlan()) run(query, params);
-      run(UPSERT_REQUEST, [row.id, row.need_json, row.created_at, row.delete_token_hmac, row.origin ?? "outside"]);
+      runBatch([[UPSERT_REQUEST, requestParams(row)], ...also]);
     },
     async exec(query, params = []) {
       run(query, params);
+    },
+    async batch(statements) {
+      runBatch(statements);
     },
     async select(query, params = []) {
       return all(query, params);
@@ -486,12 +523,20 @@ function pgStore(kind: "postgres" | "pglite", { q, tx, end }: PgRunner): Store {
     async purgeExpired(now) {
       for (const [query, params] of purgePlan(now)) await q(query, params);
     },
-    async saveRequest(row) {
+    async saveRequest(row, also = []) {
       for (const [query, params] of purgePlan()) await q(query, params);
-      await q(UPSERT_REQUEST, [row.id, row.need_json, row.created_at, row.delete_token_hmac, row.origin ?? "outside"]);
+      await tx(async (run) => {
+        for (const [query, params] of [[UPSERT_REQUEST, requestParams(row)] as Statement, ...also]) await run(query, params);
+      });
     },
     async exec(query, params = []) {
       await q(query, params);
+    },
+    async batch(statements) {
+      if (statements.length === 0) return;
+      await tx(async (run) => {
+        for (const [query, params] of statements) await run(query, params);
+      });
     },
     async select(query, params = []) {
       return q(query, params);
@@ -588,6 +633,10 @@ function variantParams(row: VariantRow): unknown[] {
     row.variant_json,
     row.observed_at,
   ];
+}
+
+function requestParams(row: RequestRow): unknown[] {
+  return [row.id, row.need_json, row.created_at, row.delete_token_hmac, row.origin ?? "outside"];
 }
 
 function oneRequest(rows: Record<string, unknown>[]): RequestRow | null {

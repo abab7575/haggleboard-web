@@ -18,7 +18,8 @@
     "watch": "tsx watcher/cli.ts",
     "issue-key": "tsx scripts/issue-key.ts",
     "scan": "node scripts/scan-secrets.mjs",
-    "purge": "tsx scripts/purge-expired.ts"
+    "purge": "tsx scripts/purge-expired.ts",
+    "export-events": "tsx scripts/export-events.ts"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.32.1",

@@ -1,9 +1,12 @@
 import type { Metadata } from "next";
 import { notFound } from "next/navigation";
+import { LiveAuction } from "../../../components/live-auction";
 import { OfferList } from "../../../components/offer-list";
 import { PRICE_NOTE } from "../../../lib/copy";
 import { HttpError } from "../../../lib/http";
+import { logPageRead } from "../../../lib/page-read";
 import { defaultDeps, getOffers, publicNeedLabel } from "../../../lib/service";
+import { publicStream } from "../../../lib/stream";
 
 export const dynamic = "force-dynamic";
 export const metadata: Metadata = { title: "Request" };
@@ -11,9 +14,12 @@ export const metadata: Metadata = { title: "Request" };
 export default async function RequestPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
   try {
+    const deps = await defaultDeps();
     // Public view: no delete token, so no private field is loaded into this page.
-    const result = await getOffers({ request_id: id }, await defaultDeps());
+    const result = await getOffers({ request_id: id }, deps);
     const label = "label" in result.need ? result.need.label : publicNeedLabel(result.need);
+    const stream = await publicStream(deps.store, id);
+    await logPageRead(deps.store, { kind: "request", path: `/r/${id}`, request_id: id });
     return (
       <main>
         <section className="hero">
@@ -24,6 +30,7 @@ export default async function RequestPage({ params }: { params: Promise<{ id: st
             already hold are not shown. {PRICE_NOTE}
           </p>
         </section>
+        {stream ? <LiveAuction requestId={id} initial={stream} /> : null}
         <OfferList offers={result.offers} omitted={result.omitted_unavailable} />
         <form className="panel report" action={`/api/requests/${id}/report`} method="post">
           <p>
@@ -37,7 +44,8 @@ export default async function RequestPage({ params }: { params: Promise<{ id: st
           <button type="submit">Send report</button>
         </form>
         <p className="meta">
-          <a href="/board">Back to the board</a>
+          <a href="/board">Back to the board</a> · Live events as JSON:{" "}
+          <a href={`/api/requests/${id}/events`}>/api/requests/{id}/events</a>
         </p>
       </main>
     );

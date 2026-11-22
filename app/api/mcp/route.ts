@@ -26,7 +26,7 @@ export async function GET(req: Request) {
 export async function POST(req: Request) {
   const blocked = await limited(req);
   if (blocked) return blocked;
-  return handleMcpRequest(req, withRequestHooks(await defaultDeps(), req));
+  return handleMcpRequest(req, withRequestHooks(await defaultDeps(), req, "mcp"));
 }
 
 export async function DELETE(req: Request) {
