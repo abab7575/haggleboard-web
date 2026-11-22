@@ -15,7 +15,8 @@ export default function PrivacyPage() {
       <section className="panel legal">
         <ul>
           <li>No accounts, no cookies for tracking, no ads, no analytics that identify you.</li>
-          <li>If you post a need, we store its text, parsed fields and time. Don&apos;t include names, addresses or contact details. Need text is deleted after 30 days; hidden needs too.</li>
+          <li>If you post a request, we store its text, parsed fields, any order you say you already hold, and the time. Don&apos;t include names, addresses or contact details. Requests are deleted after 30 days; hidden ones too.</li>
+          <li>The public board shows only the product, when it was posted, how many stores answered and their public prices. Your text, your maximum price and the order you hold are shown only to you (with your delete token).</li>
           <li>For rate limiting and abuse reports we keep a salted hash of your IP address, not the IP itself, and delete it after 30 days.</li>
           <li>Our host (Vercel) processes standard request logs for security for a short period.</li>
           <li>We don&apos;t sell or share data. Delete your need anytime with its delete token, or email {mail}.</li>

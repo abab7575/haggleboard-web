@@ -2,36 +2,84 @@ import { randomUUID } from "node:crypto";
 import { z } from "zod";
 import { hostMatchesDomain } from "../feeds/host.js";
 import { loadRemoved } from "../feeds/seeds.js";
-import { genderLabel } from "../referee/attributes.js";
 import { DISCLAIMER } from "./copy.js";
-import { getStore, StoreUnavailableError, variantToRow, type Store } from "./db.js";
+import { getStore, StoreUnavailableError, variantToRow, type BidRow, type Store } from "./db.js";
 import { defaultFixturePath, readFixture } from "./catalog.js";
 import { HttpError } from "./http.js";
 import { bidsEnabled, deleteTokenHmac, deleteTokenKey, hmacEqual, newDeleteToken, newStoreKey, storeKeyHmac } from "./keys.js";
 import { centsToDecimal, toCents } from "../referee/money.js";
 import { canonicalSize } from "../referee/attributes.js";
 import { matchVariants, variantMatches } from "../referee/match.js";
-import { needIsEmpty, parseNeed } from "../referee/parse.js";
+import { needIsEmpty, normalizeGtin, normalizeStoredNeed, parseNeed } from "../referee/parse.js";
 import { rankOffers } from "../referee/rank.js";
-import type { CatalogVariant, Gender, PublicOffer, ResolvedNeed } from "../referee/types.js";
+import type { CatalogVariant, Gender, PublicNeed, PublicOffer, ResolvedNeed } from "../referee/types.js";
+import { compareWithHolding, productOnly, publicNeed, publicOffer } from "./privacy.js";
 
 export type Deps = {
   loadVariants: () => Promise<CatalogVariant[]>;
   store: Store;
 };
 
+const DAY_MS_LOCAL = 24 * 60 * 60 * 1000;
+
+function isCalendarDate(value: string): boolean {
+  const parsed = new Date(`${value}T00:00:00.000Z`);
+  return !Number.isNaN(parsed.getTime()) && parsed.toISOString().slice(0, 10) === value;
+}
+
+/** An order the shopper already holds elsewhere. PRIVATE. `price` is the total for the quantity asked for. */
+export const holdingSchema = z
+  .object({
+    seller: z.string().trim().min(1).max(120).optional(),
+    price: z.number().positive().max(1_000_000),
+    currency: z
+      .string()
+      .trim()
+      .regex(/^[A-Za-z]{3}$/, "holding.currency must be a 3-letter code such as USD"),
+    delivered: z.boolean().optional(),
+    delivery_by: z
+      .string()
+      .trim()
+      .regex(/^\d{4}-\d{2}-\d{2}$/, "holding.delivery_by must be a date such as 2026-12-01")
+      .refine(isCalendarDate, "holding.delivery_by is not a real date")
+      .refine(
+        (value) => Date.parse(`${value}T00:00:00.000Z`) >= Date.now() - 2 * DAY_MS_LOCAL,
+        "holding.delivery_by is in the past",
+      )
+      .refine(
+        (value) => Date.parse(`${value}T00:00:00.000Z`) <= Date.now() + 400 * DAY_MS_LOCAL,
+        "holding.delivery_by is more than a year away",
+      )
+      .optional(),
+  })
+  .strict();
+
 const needSchema = z.object({
   text: z.string().trim().max(500).optional(),
   brand: z.string().trim().max(80).optional(),
   model: z.string().trim().max(120).optional(),
+  gtin: z
+    .string()
+    .trim()
+    .refine((value) => normalizeGtin(value) != null, "gtin must be an 8, 12, 13 or 14 digit barcode with a valid check digit")
+    .optional(),
   gender: z.enum(["women", "men", "unisex", "kids"]).optional(),
   size: z.string().trim().max(32).optional(),
+  color: z.string().trim().max(60).optional(),
+  attributes: z
+    .record(z.string().trim().min(1).max(40), z.string().trim().max(80))
+    .refine((value) => Object.keys(value).length <= 10, "attributes can have at most 10 entries")
+    .optional(),
+  quantity: z.number().int().min(1).max(1000).optional(),
+  category: z.string().trim().max(80).optional(),
   max_price: z.number().positive().max(100_000).optional(),
   currency: z.string().trim().length(3).optional(),
   region: z.string().trim().max(40).optional(),
   country: z.string().trim().max(40).optional(),
+  holding: holdingSchema.optional(),
   limit: z.number().int().min(1).max(50).optional(),
   request_id: z.string().uuid().optional(),
+  delete_token: z.string().trim().min(16).max(200).optional(),
 });
 
 const bidSchema = z.object({
@@ -87,31 +135,89 @@ async function liveVariants(deps: Deps) {
   return (await deps.loadVariants()).filter((v) => !isDemoSeller(v as { store_domain?: string; demo?: unknown }));
 }
 
+export const PRIVACY_NOTE =
+  "Only you see your text, your maximum price and the order you hold. The public board shows the product, when it was posted, how many stores answered, and their public prices.";
+
 export async function postRequest(input: unknown, deps: Deps) {
   const body = parseNeedBody(input);
   const need = parseNeed(body);
-  assertSearchable(need);
+  assertPostable(need);
   const id = randomUUID();
   const created_at = new Date().toISOString();
   const delete_token = newDeleteToken();
   let persisted = false;
-  try {
-    await deps.store.saveRequest({
-      id,
-      need_json: JSON.stringify(need),
-      created_at,
-      delete_token_hmac: deleteTokenHmac(deleteTokenKey(), id, delete_token),
-    });
-    persisted = true;
-  } catch (error) {
-    if (!(error instanceof StoreUnavailableError)) throw error;
+  if (deps.store.kind !== "unavailable") {
+    try {
+      await deps.store.saveRequest({
+        id,
+        need_json: JSON.stringify(need),
+        created_at,
+        delete_token_hmac: deleteTokenHmac(deleteTokenKey(), id, delete_token),
+      });
+      persisted = true;
+    } catch (error) {
+      if (!(error instanceof StoreUnavailableError)) throw error;
+    }
   }
-  const result = await collectOffers(need, persisted ? id : null, deps, body.limit ?? 20);
+  const result = await collectOffers(need, persisted ? id : null, deps, body.limit ?? 20, "poster");
   return {
     id,
     persisted,
     created_at,
     delete_token: persisted ? delete_token : null,
+    board_url: persisted ? `/r/${id}` : null,
+    need,
+    offers: result.offers,
+    omitted_unavailable: result.omitted_unavailable,
+    hint: needHint(need, result.offers.length),
+    privacy: PRIVACY_NOTE,
+    checkout: "store_site" as const,
+    disclaimer: DISCLAIMER,
+  };
+}
+
+function needHint(need: ResolvedNeed, offers: number): string | null {
+  if (!need.brand && !need.model && !need.gtin) {
+    return "Add a brand and model, or a barcode (gtin), so stores can match it.";
+  }
+  if (offers === 0) {
+    return "No public listing matched yet. The request is on the board. Call get_offers with request_id and delete_token later.";
+  }
+  return null;
+}
+
+/**
+ * With request_id and the matching delete_token: the poster's private view.
+ * With request_id alone: the public view (product, public prices; nothing private).
+ * Without request_id: a one-off query, answered to the asker and not stored.
+ */
+export async function getOffers(input: unknown, deps: Deps) {
+  const body = parseNeedBody(input ?? {});
+  if (body.request_id) {
+    const row = await deps.store.getRequest(body.request_id);
+    if (!row) throw new HttpError(404, "No stored request with that id");
+    const stored = normalizeStoredNeed(JSON.parse(row.need_json) as Partial<ResolvedNeed>);
+    const poster = body.delete_token ? posterTokenMatches(row, body.delete_token) : false;
+    const view: View = poster ? "poster" : "public";
+    const result = await collectOffers(stored, body.request_id, deps, body.limit ?? 20, view);
+    return {
+      request_id: body.request_id,
+      view,
+      created_at: row.created_at,
+      need: result.need,
+      offers: result.offers,
+      omitted_unavailable: result.omitted_unavailable,
+      checkout: "store_site" as const,
+      disclaimer: DISCLAIMER,
+    };
+  }
+  const need = parseNeed(body);
+  assertSearchable(need);
+  const result = await collectOffers(need, null, deps, body.limit ?? 20, "poster");
+  return {
+    request_id: null,
+    view: "query" as const,
+    created_at: null,
     need: result.need,
     offers: result.offers,
     omitted_unavailable: result.omitted_unavailable,
@@ -120,26 +226,15 @@ export async function postRequest(input: unknown, deps: Deps) {
   };
 }
 
-export async function getOffers(input: unknown, deps: Deps) {
-  const body = parseNeedBody(input ?? {});
-  let need: ResolvedNeed;
-  if (body.request_id) {
-    const row = await deps.store.getRequest(body.request_id);
-    if (!row) throw new HttpError(404, "No stored request with that id");
-    need = JSON.parse(row.need_json) as ResolvedNeed;
-  } else {
-    need = parseNeed(body);
-    assertSearchable(need);
+function posterTokenMatches(row: { id: string; delete_token_hmac: string | null }, token: string): boolean {
+  if (!row.delete_token_hmac) return false;
+  let key: string;
+  try {
+    key = deleteTokenKey();
+  } catch {
+    return false;
   }
-  const result = await collectOffers(need, body.request_id ?? null, deps, body.limit ?? 20);
-  return {
-    request_id: body.request_id ?? null,
-    need: result.need,
-    offers: result.offers,
-    omitted_unavailable: result.omitted_unavailable,
-    checkout: "store_site" as const,
-    disclaimer: DISCLAIMER,
-  };
+  return hmacEqual(row.delete_token_hmac, deleteTokenHmac(key, row.id, token));
 }
 
 export async function searchProducts(input: unknown, deps: Deps) {
@@ -316,21 +411,84 @@ export async function reportNeed(
   return { status: "hidden" as const, hidden: true };
 }
 
-export function publicNeedLabel(need: ResolvedNeed): string {
-  const gender = need.gender && need.gender !== "unknown" ? genderLabel(need.gender) : null;
-  const parts = [gender, need.brand, need.model, need.size ? `size ${need.size}` : null].filter(
-    (part): part is string => Boolean(part),
-  );
-  return parts.join(" ") || "Need";
+export function publicNeedLabel(need: Partial<ResolvedNeed>): string {
+  return publicNeed(normalizeStoredNeed(need)).label;
 }
 
-export async function listRecentNeeds(deps: Deps, limit = 8) {
+/** Recent requests, public fields only. */
+export async function listRecentNeeds(
+  deps: Deps,
+  limit = 8,
+): Promise<Array<{ id: string; created_at: string; need: PublicNeed }>> {
   const rows = await deps.store.listRequests(limit);
   return rows.map((row) => ({
     id: row.id,
     created_at: row.created_at,
-    need: JSON.parse(row.need_json) as ResolvedNeed,
+    need: publicNeed(normalizeStoredNeed(JSON.parse(row.need_json) as Partial<ResolvedNeed>)),
   }));
+}
+
+export type BoardPrice = {
+  store_domain: string;
+  price: string;
+  currency: string;
+  product_url: string;
+  available: boolean;
+  source: "feed" | "bid";
+  observed_at: string;
+};
+
+export type BoardRow = {
+  id: string;
+  url: string;
+  created_at: string;
+  need: PublicNeed;
+  stores_answered: number;
+  prices: BoardPrice[];
+  outcome: "answered" | "no_offers";
+};
+
+export const BOARD_LIMIT = 50;
+
+/**
+ * The public board. Built only from publicNeed() and public offers, so nothing private can reach it.
+ * Hidden requests are left out by the store, and expired ones are purged after 30 days.
+ */
+export async function boardRows(deps: Deps, limit = BOARD_LIMIT): Promise<BoardRow[]> {
+  const rows = await deps.store.listRequests(Math.min(Math.max(1, limit), BOARD_LIMIT));
+  const variants = await liveVariants(deps);
+  const bids = await deps.store.listBids();
+  return rows.map((row) => {
+    const need = normalizeStoredNeed(JSON.parse(row.need_json) as Partial<ResolvedNeed>);
+    const offers = offersFor(need, row.id, variants, bids, "public").ranked.slice(0, 10);
+    const prices: BoardPrice[] = offers.map((offer) => ({
+      store_domain: offer.store_domain,
+      price: offer.price,
+      currency: offer.currency,
+      product_url: offer.product_url,
+      available: offer.available,
+      source: offer.source,
+      observed_at: offer.observed_at,
+    }));
+    return {
+      id: row.id,
+      url: `/r/${row.id}`,
+      created_at: row.created_at,
+      need: publicNeed(need),
+      stores_answered: new Set(offers.map((offer) => offer.store_domain)).size,
+      prices,
+      outcome: offers.length > 0 ? ("answered" as const) : ("no_offers" as const),
+    };
+  });
+}
+
+export async function boardFeed(deps: Deps) {
+  return {
+    board: "HaggleBoard",
+    note: "Public fields only. The poster's text, maximum price and held order are never listed.",
+    requests: await boardRows(deps),
+    disclaimer: DISCLAIMER,
+  };
 }
 
 export async function importVariants(variants: CatalogVariant[], store: Store): Promise<number> {
@@ -353,39 +511,76 @@ export async function catalogSummary(deps: Deps) {
   };
 }
 
-async function collectOffers(need: ResolvedNeed, requestId: string | null, deps: Deps, limit: number) {
-  const variants = await liveVariants(deps);
-  const available = matchVariants(variants, need, true);
-  const includingSoldOut = matchVariants(variants, need, false);
+type View = "poster" | "public";
+
+/**
+ * poster: the full need, request-bound store offers, and a comparison with the held order.
+ * public: product fields only, matched without the private price cap or location, no
+ *         request-bound offers and no comparison.
+ */
+function offersFor(
+  need: ResolvedNeed,
+  requestId: string | null,
+  variants: CatalogVariant[],
+  bids: BidRow[],
+  view: View,
+) {
+  const matchNeed = view === "public" ? productOnly(need) : need;
+  const available = matchVariants(variants, matchNeed, true);
+  const includingSoldOut = matchVariants(variants, matchNeed, false);
   const offers = available.map((variant) => toPublicOffer(variant, "feed"));
-  const bids = await deps.store.listBids();
   for (const row of bids) {
     const stored = JSON.parse(row.bid_json) as StoredBid;
     if (stored.verified !== true || isDemoSeller(stored)) continue;
     if (requestId && row.request_id === requestId) {
-      offers.push(bidToOffer(stored, row.created_at));
+      if (view === "poster") offers.push(bidToOffer(stored, row.created_at));
       continue;
     }
-    if (!row.request_id && variantMatches(bidAsVariant(stored, row.created_at), need, true)) {
+    if (!row.request_id && variantMatches(bidAsVariant(stored, row.created_at), matchNeed, true)) {
       offers.push(bidToOffer(stored, row.created_at));
     }
   }
-  return {
-    need,
-    offers: rankOffers(offers).slice(0, limit),
-    omitted_unavailable: Math.max(0, includingSoldOut.length - available.length),
-  };
+  return { ranked: rankOffers(offers), omitted: Math.max(0, includingSoldOut.length - available.length) };
+}
+
+async function collectOffers(need: ResolvedNeed, requestId: string | null, deps: Deps, limit: number, view: View) {
+  const variants = await liveVariants(deps);
+  const bids = await deps.store.listBids();
+  const { ranked, omitted } = offersFor(need, requestId, variants, bids, view);
+  const sliced = ranked.slice(0, limit);
+  if (view === "public") {
+    return { need: publicNeed(need) as PublicNeed | ResolvedNeed, offers: sliced.map(publicOffer), omitted_unavailable: omitted };
+  }
+  const holding = need.holding;
+  const offers = holding
+    ? sliced.map((offer) => ({ ...offer, vs_holding: compareWithHolding(offer, holding, need.quantity) }))
+    : sliced;
+  return { need: need as PublicNeed | ResolvedNeed, offers, omitted_unavailable: omitted };
 }
 
 function parseNeedBody(input: unknown): z.infer<typeof needSchema> {
   const parsed = needSchema.safeParse(input);
-  if (!parsed.success) throw new HttpError(400, "The need is not valid");
+  if (!parsed.success) {
+    const issue = parsed.error.issues[0];
+    const where = issue?.path.length ? issue.path.join(".") : null;
+    const custom = issue && issue.code === "custom" ? issue.message : null;
+    const regex = issue && issue.code === "invalid_format" ? issue.message : null;
+    const detail = custom ?? regex ?? (where ? `check ${where}` : null);
+    throw new HttpError(400, detail ? `The need is not valid: ${detail}` : "The need is not valid");
+  }
   return parsed.data;
 }
 
+/** Posting needs only a description: free text, a brand, a model or a barcode. No price needed. */
+function assertPostable(need: ResolvedNeed) {
+  if (!need.text && !need.brand && !need.model && !need.gtin) {
+    throw new HttpError(400, "Say what you are looking for: send text, or a brand and model, or a gtin");
+  }
+}
+
 function assertSearchable(need: ResolvedNeed) {
-  if (needIsEmpty(need) || (!need.brand && !need.model && !need.size)) {
-    throw new HttpError(400, "Name a brand, model, or size");
+  if (needIsEmpty(need) || (!need.brand && !need.model && !need.size && !need.gtin)) {
+    throw new HttpError(400, "Name a brand, model, size, or gtin");
   }
 }
 

@@ -23,7 +23,7 @@ const nextConfig: NextConfig = {
   },
   serverExternalPackages: ["better-sqlite3", "postgres"],
   outputFileTracingIncludes: {
-    "*": ["./fixtures/**/*.json", "./llms.txt", "./spec/**/*.json", "./feeds/seeds/*.json"],
+    "*": ["./fixtures/**/*.json", "./llms.txt", "./spec/**/*.json", "./feeds/seeds/*.json", "./skill/**/*.md"],
   },
   experimental: {
     extensionAlias: {

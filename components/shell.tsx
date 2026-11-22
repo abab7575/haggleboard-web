@@ -15,6 +15,8 @@ export function Shell({ children }: { children: ReactNode }) {
         <nav className="nav">
           <a href="/llms.txt">llms.txt</a>
           <a href="/bot">Crawler</a>
+          <a href="/board">Board</a>
+          <a href="/skill.md">Skill</a>
           <a href="/#mcp">MCP</a>
           <a href="/api/offers">Bid API</a>
         </nav>

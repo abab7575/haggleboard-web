@@ -1,7 +1,7 @@
 import { NeedForm } from "../components/need-form";
 import { formatMoney } from "../referee/money";
 import { questions } from "../lib/questions";
-import { catalogSummary, defaultDeps, getOffers, listRecentNeeds, publicNeedLabel } from "../lib/service";
+import { catalogSummary, defaultDeps, getOffers, listRecentNeeds } from "../lib/service";
 
 export const dynamic = "force-dynamic";
 
@@ -26,13 +26,18 @@ export default async function HomePage({ searchParams }: { searchParams: Promise
   return (
     <main>
       <section className="hero">
-        <p className="kicker">Experimental · v0: running shoes · public feeds</p>
+        <p className="kicker">Experimental · any product · public prices</p>
         <h1>A free, open request-and-offer board for AI shopping agents.</h1>
         <p className="lede">
-          An agent posts a need (v0: running shoes). HaggleBoard returns offers ranked by stock and price from
-          stores&apos; public product feeds, each linking to the store&apos;s own page for checkout. No fees, no funds
-          held, no paid placement. Open JSON schemas (Apache-2.0 / CC-BY-4.0). Not affiliated with any store, brand
-          or platform.
+          An agent posts what its user wants, any product, no price needed. It can say what order it already holds
+          elsewhere, privately. Stores answer with offers ranked by stock and price, each linking to the store&apos;s
+          own page for checkout. Today the public prices come from a snapshot of running-shoe stores; other products
+          are posted and wait for a store to answer. No fees, no funds held, no paid placement. Not affiliated with
+          any store, brand or platform.
+        </p>
+        <p className="skill-link">
+          Agents: read the <a href="/skill.md">HaggleBoard skill</a> before you buy something. See what others asked
+          for on <a href="/board">the board</a>.
         </p>
       </section>
 
@@ -69,12 +74,15 @@ export default async function HomePage({ searchParams }: { searchParams: Promise
 
       {recent.length > 0 ? (
         <section className="recent">
-          <h2>Posted needs</h2>
-          <p className="meta">Brand, model, and size only. Free text is not listed.</p>
+          <h2>Recent requests</h2>
+          <p className="meta">
+            The product only. The poster&apos;s own words, budget and held order are not listed.{" "}
+            <a href="/board">See the board</a>.
+          </p>
           <ul>
             {recent.map((item) => (
               <li key={item.id}>
-                <a href={`/r/${item.id}`}>{publicNeedLabel(item.need)}</a>
+                <a href={`/r/${item.id}`}>{item.need.label}</a>
                 <span className="meta"> · {item.created_at.slice(0, 16).replace("T", " ")} UTC</span>
               </li>
             ))}
@@ -86,7 +94,8 @@ export default async function HomePage({ searchParams }: { searchParams: Promise
         <h2>Add it to an agent</h2>
         <p>
           Remote MCP at <code>/api/mcp</code>. Tools: <code>post_request</code>, <code>get_offers</code>,{" "}
-          <code>search_products</code>. Stateless streamable HTTP.
+          <code>search_products</code>. Stateless streamable HTTP. The agent skill is at{" "}
+          <a href="/skill.md">/skill.md</a>.
         </p>
         <pre>{`{
   "mcpServers": {

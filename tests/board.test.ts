@@ -229,7 +229,10 @@ describe("database and offers", () => {
       }),
       created_at: "2026-10-18T00:00:00.000Z",
     });
-    const withBid = await getOffers({ request_id: posted.id }, deps);
+    // A store offer bound to this request is private: the poster sees it with the delete token, the public view does not.
+    const publicView = await getOffers({ request_id: posted.id }, deps);
+    expect(publicView.offers.some((offer) => offer.source === "bid")).toBe(false);
+    const withBid = await getOffers({ request_id: posted.id, delete_token: posted.delete_token }, deps);
     expect(withBid.offers[0]?.source).toBe("bid");
     expect(withBid.offers[0]?.price_cents).toBe(9000);
     expect(withBid.offers[0]?.shipping).toBe("free over $50");
@@ -238,7 +241,7 @@ describe("database and offers", () => {
     const reviewed = await reportNeed(posted.id, { reason: "please remove", ipHash: "hashed-ip", deleteToken: null }, deps);
     expect(reviewed).toEqual({ status: "review", hidden: false });
     expect(JSON.stringify(await store.listReports())).not.toContain("call me");
-    const stillListed = await getOffers({ request_id: posted.id }, deps);
+    const stillListed = await getOffers({ request_id: posted.id, delete_token: posted.delete_token }, deps);
     expect(stillListed.offers.some((offer) => offer.source === "bid" && offer.verified === true)).toBe(true);
     expect(stillListed.offers.some((offer) => offer.verified === false)).toBe(false);
     if (previousEnabled === undefined) delete process.env.BID_KEYS_ENABLED;
@@ -267,7 +270,7 @@ describe("reports", () => {
     const again = await reportNeed(posted.id, { reason: "spam", ipHash: "ip-a", deleteToken: null }, deps);
     expect(again).toEqual({ status: "review", hidden: false });
     expect(await store.countReporters(posted.id)).toBe(1);
-    await expect(getOffers({ request_id: posted.id }, deps)).resolves.toMatchObject({ need: posted.need });
+    await expect(getOffers({ request_id: posted.id }, deps)).resolves.toMatchObject({ request_id: posted.id, view: "public" });
     await store.close();
   });
 
@@ -304,7 +307,7 @@ describe("reports", () => {
       held = await reportNeed(extra.id, { reason: "spam", ipHash: `held-${ip}`, deleteToken: null }, deps, now);
     }
     expect(held).toEqual({ status: "review", hidden: false });
-    await expect(getOffers({ request_id: extra.id }, deps)).resolves.toMatchObject({ need: extra.need });
+    await expect(getOffers({ request_id: extra.id }, deps)).resolves.toMatchObject({ request_id: extra.id, view: "public" });
     expect(await store.countAutoHidesSince(new Date(now - 24 * 60 * 60 * 1000).toISOString())).toBe(20);
     await store.close();
   });

@@ -157,8 +157,13 @@ ON CONFLICT(id) DO UPDATE SET
   created_at = excluded.created_at,
   delete_token_hmac = COALESCE(requests.delete_token_hmac, excluded.delete_token_hmac)`;
 
-const SELECT_REQUEST = `SELECT id, need_json, created_at, delete_token_hmac FROM requests WHERE id = ? AND hidden_at IS NULL`;
-const LIST_REQUESTS = `SELECT id, need_json, created_at, delete_token_hmac FROM requests WHERE hidden_at IS NULL ORDER BY created_at DESC LIMIT ?`;
+/** Hidden requests and requests past RETENTION_DAYS are never read back, even before the purge runs. */
+const SELECT_REQUEST = `SELECT id, need_json, created_at, delete_token_hmac FROM requests WHERE id = ? AND hidden_at IS NULL AND created_at >= ?`;
+const LIST_REQUESTS = `SELECT id, need_json, created_at, delete_token_hmac FROM requests WHERE hidden_at IS NULL AND created_at >= ? ORDER BY created_at DESC LIMIT ?`;
+
+function retentionCutoff(now = Date.now()): string {
+  return new Date(now - RETENTION_DAYS * DAY).toISOString();
+}
 const HIDE_REQUEST = `UPDATE requests SET hidden_at = ?, hidden_by = ? WHERE id = ? AND hidden_at IS NULL`;
 const COUNT_AUTO_HIDES = `SELECT COUNT(*) AS n FROM requests WHERE hidden_by = 'reports' AND hidden_at >= ?`;
 const COUNT_REPORTERS = `SELECT COUNT(DISTINCT ip_hash) AS n FROM reports WHERE request_id = ?`;
@@ -299,10 +304,10 @@ export async function openSqlite(filename: string): Promise<Store> {
       run(UPSERT_REQUEST, [row.id, row.need_json, row.created_at, row.delete_token_hmac]);
     },
     async getRequest(id) {
-      return oneRequest(all(SELECT_REQUEST, [id]));
+      return oneRequest(all(SELECT_REQUEST, [id, retentionCutoff()]));
     },
     async listRequests(limit) {
-      return all(LIST_REQUESTS, [limit]).map(asRequest);
+      return all(LIST_REQUESTS, [retentionCutoff(), limit]).map(asRequest);
     },
     async saveBid(row) {
       run(UPSERT_BID, [row.id, row.request_id, row.store_domain, row.key_hash, row.bid_json, row.created_at]);
@@ -420,10 +425,10 @@ function pgStore(kind: "postgres" | "pglite", { q, tx, end }: PgRunner): Store {
       await q(UPSERT_REQUEST, [row.id, row.need_json, row.created_at, row.delete_token_hmac]);
     },
     async getRequest(id) {
-      return oneRequest(await q(SELECT_REQUEST, [id]));
+      return oneRequest(await q(SELECT_REQUEST, [id, retentionCutoff()]));
     },
     async listRequests(limit) {
-      return (await q(LIST_REQUESTS, [limit])).map(asRequest);
+      return (await q(LIST_REQUESTS, [retentionCutoff(), limit])).map(asRequest);
     },
     async saveBid(row) {
       await q(UPSERT_BID, [row.id, row.request_id, row.store_domain, row.key_hash, row.bid_json, row.created_at]);
