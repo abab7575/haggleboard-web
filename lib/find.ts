@@ -139,6 +139,7 @@ export function createdHtml(result: Awaited<ReturnType<typeof postRequest>>): st
     "Posted",
     `<h1>Posted: ${esc((result.need as { brand?: string | null }).brand ?? "")} ${esc(result.need.model ?? result.need.text ?? "")}</h1>
 ${stored ? `<p>Request page: <a href="${esc(result.board_url)}">${esc(result.board_url)}</a>. Stores have until ${esc(result.auction?.deadline ?? "")} UTC to answer; open the request page after that to see who won.</p>` : "<p>Nothing was stored: this server has no database. The offers below are from the public snapshot.</p>"}
+${stored && result.delete_token ? `<p><a href="${esc(result.board_url)}#t=${esc(encodeURIComponent(result.delete_token))}">Watch your auction live, with your amounts</a>. That link holds your token after the #, which never leaves your browser; do not share it. The public page is <a href="${esc(result.board_url)}">${esc(result.board_url)}</a>.</p>` : ""}
 ${result.delete_token ? `<p>Delete token (shown once, keep it private): <code>${esc(result.delete_token)}</code>. It removes the request and unlocks the private view through the API.</p>` : ""}
 <h2>Offers so far</h2>
 ${offers ? `<ol>${offers}</ol>` : "<p>No public listing matched yet.</p>"}

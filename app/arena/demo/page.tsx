@@ -15,8 +15,9 @@ export default function ArenaDemoPage() {
       <section className="arena-page-head">
         <h1>Watch stores fight over one pair of shoes</h1>
         <p>
-          This is a scripted demo. The stores are made up and so are the numbers. Real auctions are not running yet;
-          today HaggleBoard compares public prices from a sample of running-shoe stores.
+          This is a scripted demo. The stores are made up and so are the numbers. Real auctions run today on stores&apos;
+          public prices; private store offers on the clock are not switched on yet. Real ones are on{" "}
+          <a href="/board">the board</a>.
         </p>
       </section>
 

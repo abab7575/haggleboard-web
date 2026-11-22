@@ -3,8 +3,9 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import {
   arenaStateAt,
-  bandLabel,
+  bandText,
   clockLabel,
+  savedText,
   durationWords,
   rankBidders,
   type ArenaState,
@@ -42,6 +43,14 @@ export type ArenaProps = {
   onClose?: () => void;
   /** Called when playback (re)starts from the top. */
   onPlay?: () => void;
+  /** Line under the request. Defaults to the demo's "No price given" line. */
+  requestNote?: string;
+  /** The privacy line at the foot of the arena. */
+  privacyNote?: string;
+  /** Shown in place of lanes while no store has answered (live auctions). */
+  emptyLanes?: string;
+  /** Live auctions: hide the in-arena finish banner when the page shows a result card instead. */
+  hideFinish?: boolean;
 };
 
 type Mode = "static" | "playing" | "paused" | "done";
@@ -64,6 +73,10 @@ export function Arena({
   controls = false,
   onClose,
   onPlay,
+  requestNote = "No price given. Stores have to come to it.",
+  privacyNote = "Everyone sees who is bidding, who leads and a rough band. The prices stay between each store and the asking agent.",
+  emptyLanes,
+  hideFinish = false,
 }: ArenaProps) {
   const lastAt = events.length ? events[events.length - 1].at : 0;
   const finalT = opensAt ? lastAt : durationSec;
@@ -197,7 +210,7 @@ export function Arena({
   const isStatic = mode === "static";
   const intro = t < 0;
   const leader = state.bidders.find((b) => b.leading) ?? null;
-  const winnerName = state.close ? bidders.find((b) => b.id === state.close?.winner)?.name ?? "A store" : null;
+  const winnerName = state.close?.winner ? bidders.find((b) => b.id === state.close?.winner)?.name ?? "A store" : null;
   const progress = Math.max(0, Math.min(1, state.remaining / durationSec));
   const latest = state.commentary.slice(-3);
 
@@ -210,29 +223,36 @@ export function Arena({
       aria-label={demo ? "Demo auction with made-up stores" : "Auction"}
     >
       <header className="arena-head">
-        {demo ? <DemoLabel /> : <span className="live-label">Live</span>}
+        {demo ? <DemoLabel /> : <span className={`live-label${state.close ? " is-closed" : ""}`}>{state.close ? "Closed" : "Live"}</span>}
         <span className="arena-speed">
-          {opensAt ? "Real time" : isStatic ? "Two-minute clock, finished" : `Two-minute clock${rate > 1 ? `, ${rate}x speed` : ""}`}
+          {opensAt ? `Real-time clock, ${durationWords(durationSec)}` : isStatic ? "Two-minute clock, finished" : `Two-minute clock${rate > 1 ? `, ${rate}x speed` : ""}`}
         </span>
       </header>
 
       <div className="arena-request" key={`req-${cycle}`}>
         <p className="arena-request-label">{perspective === "shopper" ? "Your agent asked for" : "An agent asked for"}</p>
         <p className="arena-request-text">{request}</p>
-        <p className="arena-request-note">No price given. Stores have to come to it.</p>
+        <p className="arena-request-note">{requestNote}</p>
       </div>
 
       <div className="arena-clock" aria-hidden={isStatic ? undefined : true}>
         <span className="arena-clock-num" key={state.phase === "final" ? Math.ceil(state.remaining) : "steady"}>
           {clockLabel(state.remaining)}
         </span>
-        <span className="arena-clock-word">{state.close ? "Closed" : state.phase === "final" ? "Final seconds" : "left on the clock"}</span>
+        <span className="arena-clock-word">{state.close
+            ? "Closed"
+            : opensAt && state.remaining <= 0
+              ? "Time. Counting offers"
+              : state.phase === "final"
+                ? "Final seconds"
+                : "left on the clock"}</span>
         <span className="arena-clock-bar">
           <span style={{ transform: `scaleX(${progress})` }} />
         </span>
       </div>
 
       <ol className="arena-lanes" aria-label="Stores bidding">
+        {ranked.length === 0 && emptyLanes ? <li className="lane lane--empty">{emptyLanes}</li> : null}
         {ranked.map((b) => {
           const x = b.band == null ? 0 : Math.min(1, b.band / 20);
           const won = state.close?.winner === b.bidder.id;
@@ -257,7 +277,19 @@ export function Arena({
                 </span>
               </span>
               <span className="lane-band">
-                {b.joined ? (b.band == null ? "in, no lead yet" : bandLabel(b.band)) : ""}
+                {b.joined && b.bidder.publicPrice ? (
+                  <span className="lane-price" title="The store's public list price">
+                    {b.bidder.publicPrice}
+                    <small> public price</small>
+                  </span>
+                ) : null}
+                {b.joined
+                  ? b.band == null || (b.bidder.publicPrice && !b.leading)
+                    ? b.bidder.publicPrice
+                      ? null
+                      : "in, no lead yet"
+                    : bandText(b.band, b.label)
+                  : ""}
               </span>
               {b.leading ? (
                 <span className="lane-stamp" key={`${state.leadKey}-${won ? "won" : "lead"}`}>
@@ -302,13 +334,11 @@ export function Arena({
         </ol>
       )}
 
-      {state.close && !isStatic ? (
-        <Finish key={`fin-${cycle}`} saved={state.close.saved_pct} winner={winnerName ?? ""} wonAt={state.close.won_at} perspective={perspective} />
+      {state.close && !isStatic && !hideFinish ? (
+        <Finish key={`fin-${cycle}`} close={state.close} winner={winnerName} perspective={perspective} />
       ) : null}
 
-      <p className="arena-privacy">
-        Everyone sees who is bidding, who leads and a rough band. The prices stay between each store and the asking agent.
-      </p>
+      <p className="arena-privacy">{privacyNote}</p>
 
       {controls ? (
         <div className="arena-controls">
@@ -348,24 +378,40 @@ export function Arena({
 }
 
 function Finish({
-  saved,
+  close,
   winner,
-  wonAt,
   perspective,
 }: {
-  saved: number;
-  winner: string;
-  wonAt: number;
+  close: NonNullable<ArenaState["close"]>;
+  winner: string | null;
   perspective: "shopper" | "public";
 }) {
+  if (!winner) {
+    return (
+      <div className="arena-finish" role="status">
+        <p className="arena-finish-winner">Clock&apos;s out</p>
+        <p className="arena-finish-big">No winner</p>
+        <p className="arena-finish-sub">No store had it in stock when the clock ran out.</p>
+      </div>
+    );
+  }
+  if (close.label || close.saved_pct == null) {
+    return (
+      <div className="arena-finish" role="status">
+        <p className="arena-finish-winner">{winner} wins</p>
+        <p className="arena-finish-big arena-finish-big--words">{savedText(close)}</p>
+        <p className="arena-finish-sub">Winning offer in after {durationWords(close.won_at)}.</p>
+      </div>
+    );
+  }
   return (
     <div className="arena-finish" role="status">
       <p className="arena-finish-winner">{winner} wins</p>
       <p className="arena-finish-big">
         {perspective === "shopper" ? "Your agent saved you " : "Saved "}
-        <strong>{saved}%</strong>
+        <strong>{close.saved_pct}%</strong>
       </p>
-      <p className="arena-finish-sub">Under the best public price, in {durationWords(wonAt)}.</p>
+      <p className="arena-finish-sub">Under the best public price, in {durationWords(close.won_at)}.</p>
     </div>
   );
 }
@@ -388,7 +434,7 @@ function StaticStory({
   perspective: "shopper" | "public";
 }) {
   const close = state.close;
-  const winner = close ? bidders.find((b) => b.id === close.winner)?.name ?? "A store" : null;
+  const winner = close?.winner ? bidders.find((b) => b.id === close.winner)?.name ?? "A store" : null;
   const leadNames: string[] = [];
   for (const e of events) {
     if (e.kind !== "lead") continue;
@@ -413,7 +459,17 @@ function StaticStory({
           changed hands {Math.max(0, leadNames.length - 1)} times: {leadNames.join(", then ")}.
         </p>
       )}
-      {close ? (
+      {close && !winner ? (
+        <p className="arena-story-close">
+          <strong>No winner.</strong> No store had it in stock when the clock ran out.
+        </p>
+      ) : null}
+      {close && winner && close.saved_pct == null ? (
+        <p className="arena-story-close">
+          <strong>{winner} wins</strong>, {savedText(close)}. Winning offer in after {durationWords(close.won_at)}.
+        </p>
+      ) : null}
+      {close && winner && close.saved_pct != null ? (
         <p className="arena-story-close">
           <strong>{winner} wins</strong>, {close.saved_pct}% under the best public price, in {durationWords(close.won_at)}.
           {perspective === "shopper" ? ` Your agent saved you ${close.saved_pct}%.` : ""}

@@ -1,12 +1,15 @@
 import { Arena } from "../components/arena/arena";
 import { BiggestSaves } from "../components/arena/gamification";
+import { AskEnhancer } from "../components/home/ask-enhancer";
 import { HowItWorks, MoneyDiagram } from "../components/home/how-it-works";
+import { LiveStrip } from "../components/home/live-strip";
 import { NeedForm } from "../components/need-form";
 import { DEMO_BIGGEST_SAVES, HERO_SCRIPT } from "../lib/arena-demo";
 import { SITE_URL } from "../lib/copy";
+import { homeLive } from "../lib/home-live";
 import { questions } from "../lib/questions";
 import { formatMoney } from "../referee/money";
-import { catalogSummary, defaultDeps, getOffers, listRecentNeeds, publicNeedLabel } from "../lib/service";
+import { catalogSummary, defaultDeps, getOffers } from "../lib/service";
 
 export const dynamic = "force-dynamic";
 
@@ -22,7 +25,7 @@ export default async function HomePage({ searchParams }: { searchParams: Promise
         : null;
   const deps = await defaultDeps();
   const summary = await catalogSummary(deps);
-  const recent = await listRecentNeeds(deps, 6);
+  const live = await homeLive(deps.store);
   const cards = await Promise.all(
     questions.map(async (question) => {
       const result = await getOffers(question.need, deps);
@@ -44,18 +47,20 @@ export default async function HomePage({ searchParams }: { searchParams: Promise
             wins, and you buy on the store&apos;s own site.
           </p>
 
-          <form className="ask" action="/results" method="get">
+          <form className="ask" id="ask" action="/find" method="get">
             <label htmlFor="ask-text">What are you looking for?</label>
             <div className="ask-row">
-              <input id="ask-text" name="text" placeholder={EXAMPLE_NEED} autoComplete="off" required />
-              <button type="submit">Find it</button>
+              <input id="ask-text" name="q" placeholder={EXAMPLE_NEED} autoComplete="off" maxLength={500} required />
+              <button type="submit">Start the clock</button>
             </div>
             <p className="ask-note">
-              <strong>Live now:</strong> post a need and compare public prices from a sample of running-shoe stores.{" "}
-              <strong>Coming:</strong> stores bidding on the clock.
+              <strong>Live now:</strong> you get a real two-minute auction. Stores with a public price for it join right
+              away, and you see the result and a link to buy on the store&apos;s site. <strong>Coming:</strong> stores
+              making private offers on the clock.
             </p>
+            <p className="ask-note">Do not add your name, email or address. The product goes on the public board.</p>
           </form>
-
+          <AskEnhancer formId="ask" />
         </div>
 
         <div className="hero-stage">
@@ -89,14 +94,22 @@ export default async function HomePage({ searchParams }: { searchParams: Promise
               </dd>
             </div>
             <div>
+              <dt>Browse only?</dt>
+              <dd>
+                <code>{SITE_URL}/find?q=…</code>
+              </dd>
+            </div>
+            <div>
               <dt>Read first</dt>
               <dd>
-                <a href="/llms.txt">/llms.txt</a> · <a href="/skill.md">/skill.md</a> · <a href="#agents">HTTP API</a>
+                <a href="/llms.txt">/llms.txt</a> · <a href="/skill.md">/skill.md</a> · <a href="/agents">For agents</a>
               </dd>
             </div>
           </dl>
         </section>
       </section>
+
+      <LiveStrip live={live} />
 
       <ul className="promises" aria-label="What HaggleBoard will not do">
         <li>Free to use</li>
@@ -125,9 +138,9 @@ export default async function HomePage({ searchParams }: { searchParams: Promise
         <div className="watch-copy">
           <h2 id="watch-title">The last two minutes are the fun part</h2>
           <p>
-            Anyone can watch an auction. You see who is bidding, who leads and roughly how far under the public price
-            they are. You never see the prices themselves. Only the agent that asked sees those, so stores can go low
-            without telling the world.
+            Anyone can watch an auction. You see who is in, who leads and roughly how far under the best public price
+            they are. Store list prices are public, so they show. A private offer never does: only the agent that asked
+            sees it, so stores can go low without telling the world.
           </p>
           <a className="button" href="/arena/demo">
             Watch the demo auction
@@ -142,23 +155,24 @@ export default async function HomePage({ searchParams }: { searchParams: Promise
           <p className="audience-lead">Agents are asking for your products. Answer them.</p>
           <p>
             Win a sale without paying a marketplace or buying ads. You set the offer, the shopper buys on your site, and
-            you keep the customer. Store bidding is not open yet. To hear when it is, email{" "}
-            <a href="mailto:contact@haggleboard.com">contact@haggleboard.com</a>. The offer format is public at{" "}
-            <a href="/api/offers">/api/offers</a>.
+            you keep the customer. Claiming a store is not open yet. <a href="/stores">What a store sees, and how to be
+            removed</a>.
           </p>
         </article>
         <article className="audience audience--agents" id="agents">
           <h2>For agent builders</h2>
+          <p className="audience-lead">Ask your agent to haggle for it on HaggleBoard.</p>
           <ul className="three-lines">
             <li>
               <strong>Connector</strong> <code>{SITE_URL}/api/mcp</code> (MCP, tools: <code>post_request</code>,{" "}
-              <code>get_offers</code>, <code>search_products</code>)
+              <code>get_result</code>, <code>get_offers</code>)
             </li>
             <li>
-              <strong>Skill</strong> <a href="/skill.md">/skill.md</a> and <a href="/llms.txt">/llms.txt</a>
+              <strong>One address</strong> <code>/find?q=…</code> for agents that can only open a page
             </li>
             <li>
-              <strong>API</strong> <code>POST /api/requests</code> with <code>{`{ "text": "${EXAMPLE_NEED}" }`}</code>
+              <strong>Skill</strong> <a href="/skill.md">/skill.md</a> and <a href="/llms.txt">/llms.txt</a>.{" "}
+              <a href="/agents">Everything for agents</a>
             </li>
           </ul>
         </article>
@@ -166,7 +180,7 @@ export default async function HomePage({ searchParams }: { searchParams: Promise
 
       <section className="board" aria-labelledby="board-title">
         <div className="board-head">
-          <h2 id="board-title">On the board now</h2>
+          <h2 id="board-title">Public prices we already know</h2>
           <p className="meta">
             {summary.synthetic
               ? "Development snapshot, not a live crawl."
@@ -175,7 +189,10 @@ export default async function HomePage({ searchParams }: { searchParams: Promise
                 }.`}
           </p>
         </div>
-        <p className="meta board-sub">Real public prices. Question pages an assistant can cite.</p>
+        <p className="meta board-sub">
+          Real public prices from running-shoe stores. Question pages an assistant can cite. Requests people posted are on{" "}
+          <a href="/board">the board</a>.
+        </p>
         <div className="cards">
           {cards.map(({ question, count, low }) => (
             <a className="card" key={question.slug} href={`/q/${question.slug}`}>
@@ -191,23 +208,8 @@ export default async function HomePage({ searchParams }: { searchParams: Promise
           ))}
         </div>
 
-        {recent.length > 0 ? (
-          <section className="recent">
-            <h3>Posted needs</h3>
-            <p className="meta">Brand, model, and size only. Free text is not listed.</p>
-            <ul>
-              {recent.map((item) => (
-                <li key={item.id}>
-                  <a href={`/r/${item.id}`}>{publicNeedLabel(item.need)}</a>
-                  <span className="meta"> · {item.created_at.slice(0, 16).replace("T", " ")} UTC</span>
-                </li>
-              ))}
-            </ul>
-          </section>
-        ) : null}
-
         <details className="more-search">
-          <summary>Search with more detail: brand, model, size, price, region</summary>
+          <summary>Compare public prices with more detail: brand, model, size, price, region</summary>
           <NeedForm />
         </details>
       </section>
@@ -215,8 +217,9 @@ export default async function HomePage({ searchParams }: { searchParams: Promise
       <section className="mcp" id="mcp" aria-labelledby="mcp-title">
         <h2 id="mcp-title">Add it to an agent</h2>
         <p>
-          Remote MCP at <code>/api/mcp</code>. Tools: <code>post_request</code>, <code>get_offers</code>,{" "}
-          <code>search_products</code>. Stateless streamable HTTP.
+          Remote MCP at <code>/api/mcp</code>. Tools: <code>post_request</code>, <code>get_result</code>,{" "}
+          <code>report_outcome</code>, <code>get_offers</code>, <code>search_products</code>. Stateless streamable HTTP.
+          The agent skill is at <a href="/skill.md">/skill.md</a>.
         </p>
         <pre>{`{
   "mcpServers": {

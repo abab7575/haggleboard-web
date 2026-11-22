@@ -21,3 +21,4 @@ tsconfig.tsbuildinfo
 data/
 .env*
 !.env.example
+.gstack/

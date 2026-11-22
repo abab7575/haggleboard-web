@@ -21,6 +21,11 @@ export type PublicBidder = {
   name: string;
   /** Colour of the store's token. Purely visual. */
   tone: BidderTone;
+  /**
+   * Live auctions only: the store's PUBLIC list price, already formatted (for
+   * example "$119.95"). Never set for a private offer or a store bid.
+   */
+  publicPrice?: string;
 };
 
 /** Seconds since the clock started. */
@@ -28,14 +33,28 @@ type At = { at: number };
 
 export type PublicArenaEvent =
   | (At & { kind: "join"; bidder: string })
-  /** `band` is a multiple of 5: "about 10% under the best public price". */
-  | (At & { kind: "lead"; bidder: string; band: number })
+  /**
+   * `band` is a multiple of 5: "about 10% under the best public price". Live
+   * auctions also carry `label`, the engine's own words for the band.
+   */
+  | (At & { kind: "lead"; bidder: string; band: number; label?: string })
   /**
    * Close of the clock. `saved_pct` is the winner's exact percent under the best
-   * public price, which is public at the close. `revealed_price` is only set
-   * when the winning store chose to publish its price.
+   * public price, which is public at the close in the demo. `revealed_price` is
+   * only set when the winning store chose to publish its price.
+   *
+   * Live auctions publish a band, not an exact percent: they set `label` (such
+   * as "5 to 10% under the best public price") and leave `saved_pct` null.
+   * `winner` is null when no store had the item in stock.
    */
-  | (At & { kind: "close"; winner: string; saved_pct: number; won_at: number; revealed_price?: string });
+  | (At & {
+      kind: "close";
+      winner: string | null;
+      saved_pct: number | null;
+      won_at: number;
+      revealed_price?: string;
+      label?: string;
+    });
 
 const BAND_STEP = 5;
 const BAND_MAX = 40;
@@ -49,6 +68,7 @@ export function toBand(pctUnder: number): number {
 
 const seconds = z.number().finite().min(0).max(24 * 3600);
 const id = z.string().min(1).max(64);
+const words = z.string().min(1).max(80);
 
 const joinSchema = z.object({ kind: z.literal("join"), at: seconds, bidder: id });
 const leadSchema = z.object({
@@ -58,15 +78,17 @@ const leadSchema = z.object({
   // A raw event may carry an exact percent; only its band survives.
   band: z.number().optional(),
   pct_under: z.number().optional(),
+  label: words.optional(),
 });
 const closeSchema = z.object({
   kind: z.literal("close"),
   at: seconds,
-  winner: id,
-  saved_pct: z.number().min(0).max(100),
+  winner: id.nullable(),
+  saved_pct: z.number().min(0).max(100).nullable(),
   won_at: seconds,
   revealed_price: z.string().max(32).optional(),
   store_chose_to_reveal: z.boolean().optional(),
+  label: words.optional(),
 });
 
 /**
@@ -85,14 +107,23 @@ export function toPublicArenaEvent(raw: unknown): PublicArenaEvent | null {
     const parsed = leadSchema.safeParse(raw);
     if (!parsed.success) return null;
     const source = parsed.data.pct_under ?? parsed.data.band ?? 0;
-    return { kind: "lead", at: parsed.data.at, bidder: parsed.data.bidder, band: toBand(source) };
+    const out: PublicArenaEvent = { kind: "lead", at: parsed.data.at, bidder: parsed.data.bidder, band: toBand(source) };
+    if (parsed.data.label) out.label = parsed.data.label;
+    return out;
   }
   if (kind === "close") {
     const parsed = closeSchema.safeParse(raw);
     if (!parsed.success) return null;
-    const { at, winner, saved_pct, won_at, revealed_price, store_chose_to_reveal } = parsed.data;
-    const out: PublicArenaEvent = { kind: "close", at, winner, saved_pct: Math.round(saved_pct), won_at };
+    const { at, winner, saved_pct, won_at, revealed_price, store_chose_to_reveal, label } = parsed.data;
+    const out: PublicArenaEvent = {
+      kind: "close",
+      at,
+      winner,
+      saved_pct: saved_pct == null ? null : Math.round(saved_pct),
+      won_at,
+    };
     if (store_chose_to_reveal === true && revealed_price) out.revealed_price = revealed_price;
+    if (label) out.label = label;
     return out;
   }
   return null;
@@ -109,6 +140,8 @@ export type BidderState = {
   bidder: PublicBidder;
   joined: boolean;
   band: number | null;
+  /** The engine's words for this store's band, when the event carried them. */
+  label: string | null;
   leading: boolean;
   /** Number of times this store has taken the lead so far. */
   leads: number;
@@ -137,6 +170,17 @@ export function bandLabel(band: number | null): string {
   return `about ${band}% under`;
 }
 
+/** What a lane or a commentary line says about a band: the event's own words first. */
+export function bandText(band: number | null, label?: string | null): string {
+  return label ?? bandLabel(band);
+}
+
+/** How a close reads: the exact percent in the demo, the band's words in a live auction. */
+export function savedText(close: { saved_pct: number | null; label?: string }): string {
+  if (close.label) return close.label;
+  return `${close.saved_pct ?? 0}% under the best public price`;
+}
+
 export function clockLabel(sec: number): string {
   const s = Math.max(0, Math.ceil(sec));
   return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`;
@@ -159,11 +203,15 @@ export function commentaryFor(
   leaderBefore: string | null,
 ): CommentaryLine {
   const name = (bidderId: string) => bidders.find((b) => b.id === bidderId)?.name ?? "A store";
-  if (event.kind === "join") return { at: event.at, text: `${name(event.bidder)} is in.`, tone: "info" };
+  if (event.kind === "join") {
+    const price = bidders.find((b) => b.id === event.bidder)?.publicPrice;
+    return { at: event.at, text: `${name(event.bidder)} is in${price ? `, public price ${price}` : ""}.`, tone: "info" };
+  }
   if (event.kind === "lead") {
     const left = durationSec - event.at;
     const who = name(event.bidder);
-    if (leaderBefore == null) return { at: event.at, text: `${who} opens, ${bandLabel(event.band)}.`, tone: "lead" };
+    const band = bandText(event.band, event.label);
+    if (leaderBefore == null) return { at: event.at, text: `${who} opens, ${band}.`, tone: "lead" };
     if (left <= FINAL_SECONDS) {
       const n = Math.max(1, Math.round(left));
       const text =
@@ -174,12 +222,13 @@ export function commentaryFor(
             : `${who} grabs the lead. ${n} seconds to go!`;
       return { at: event.at, text, tone: "snipe" };
     }
-    if (leaderBefore === event.bidder) return { at: event.at, text: `${who} goes lower, ${bandLabel(event.band)}.`, tone: "lead" };
-    return { at: event.at, text: `${who} takes the lead, ${bandLabel(event.band)}.`, tone: "lead" };
+    if (leaderBefore === event.bidder) return { at: event.at, text: `${who} goes lower, ${band}.`, tone: "lead" };
+    return { at: event.at, text: `${who} takes the lead, ${band}.`, tone: "lead" };
   }
+  if (event.winner == null) return { at: event.at, text: "Clock's out. No store had it in stock.", tone: "close" };
   return {
     at: event.at,
-    text: `Clock's out. ${name(event.winner)} wins, ${event.saved_pct}% under the best public price.`,
+    text: `Clock's out. ${name(event.winner)} wins, ${savedText(event)}.`,
     tone: "close",
   };
 }
@@ -210,7 +259,7 @@ export function arenaStateAt(
   t: number,
 ): ArenaState {
   const states = new Map<string, BidderState>(
-    bidders.map((b) => [b.id, { bidder: b, joined: false, band: null, leading: false, leads: 0 }]),
+    bidders.map((b) => [b.id, { bidder: b, joined: false, band: null, label: null, leading: false, leads: 0 }]),
   );
   let leaderId: string | null = null;
   let leaderBand: number | null = null;
@@ -230,6 +279,7 @@ export function arenaStateAt(
       if (!s) continue;
       s.joined = true;
       s.band = event.band;
+      s.label = event.label ?? null;
       if (leaderId !== event.bidder) {
         if (leaderId != null) leadChanges += 1;
         s.leads += 1;
@@ -243,7 +293,7 @@ export function arenaStateAt(
     }
   }
 
-  for (const s of states.values()) s.leading = s.bidder.id === leaderId;
+  for (const s of states.values()) s.leading = leaderId != null && s.bidder.id === leaderId;
   const remaining = close ? 0 : Math.max(0, durationSec - t);
   const phase = close ? "closed" : remaining <= FINAL_SECONDS ? "final" : "open";
   return {
@@ -260,12 +310,25 @@ export function arenaStateAt(
   };
 }
 
-/** The share line on a result card. */
-export function resultLine(savedPct: number, wonAtSec: number, perspective: "shopper" | "public", winnerName?: string) {
+/**
+ * The share line on a result card. The demo passes an exact percent; a live
+ * auction passes the band's words (`label`), because only the band is public.
+ */
+export function resultLine(
+  savedPct: number | null,
+  wonAtSec: number,
+  perspective: "shopper" | "public",
+  winnerName?: string,
+  label?: string,
+) {
   const time = durationWords(wonAtSec);
-  return perspective === "shopper"
-    ? `My agent got ${savedPct}% under the best public price in ${time}.`
-    : `${winnerName ?? "A store"} won, ${savedPct}% under the best public price, in ${time}.`;
+  if (label) {
+    return perspective === "shopper"
+      ? `My agent ran a HaggleBoard auction: ${winnerName ?? "a store"} won, ${label}.`
+      : `${winnerName ?? "A store"} won, ${label}.`;
+  }
+  const how = `${savedPct ?? 0}% under the best public price`;
+  return perspective === "shopper" ? `My agent got ${how} in ${time}.` : `${winnerName ?? "A store"} won, ${how}, in ${time}.`;
 }
 
 /**

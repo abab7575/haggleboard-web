@@ -3,6 +3,7 @@ import { Shell } from "../components/shell";
 import { rootMetadata } from "../lib/indexing";
 import "./globals.css";
 import "./arena.css";
+import "./live.css";
 
 const display = Fraunces({
   subsets: ["latin"],

@@ -23,7 +23,7 @@ export default function TermsPage() {
           <li><strong>Stores.</strong> Stores can ask to be removed at {mail}; we act quickly.</li>
           <li><strong>Changes.</strong> These terms may change; the date below shows the latest version.</li>
         </ol>
-        <p>Contact: {mail}. Last updated: {LEGAL_UPDATED}. — HaggleBoard</p>
+        <p>Contact: {mail}. Last updated: {LEGAL_UPDATED}. HaggleBoard</p>
       </section>
     </main>
   );

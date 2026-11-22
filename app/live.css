@@ -1,0 +1,254 @@
+/* Real data surfaces: the live arena on /r/{id}, the homepage strip, the board, info pages. */
+
+/* ---------- shared page head ---------- */
+
+.page-head { padding: clamp(1.6rem, 4vw, 2.6rem) 0 1.4rem; }
+.page-head h1 { font-size: clamp(2.2rem, 4.6vw, 3.6rem); max-width: 20ch; text-wrap: balance; font-variation-settings: "SOFT" 100, "WONK" 1; }
+.page-head .lede { color: var(--ink); max-width: 60ch; }
+.page-head .meta { margin: 0.8rem 0 0; }
+.meta { color: var(--muted); font-size: var(--t-sm); }
+
+/* ---------- request page ---------- */
+
+.request-page { padding-bottom: 1rem; }
+.request-head { padding: clamp(1.4rem, 3.5vw, 2.2rem) 0 1.1rem; }
+.request-head .kicker a { color: inherit; }
+.request-head h1 { font-size: clamp(2rem, 4.4vw, 3.3rem); max-width: 22ch; text-wrap: balance; }
+.request-summary { margin: 0.6rem 0 0; color: var(--muted); max-width: 70ch; }
+
+.live-stage { display: grid; grid-template-columns: minmax(0, 1.75fr) minmax(0, 1fr); gap: 1.4rem; align-items: start; }
+.live-side { display: grid; gap: 1.1rem; align-content: start; }
+.live-side .result-card-line { font-size: var(--t-base); }
+
+.live-label.is-closed { color: var(--night-muted); }
+.lane--empty {
+  display: block;
+  padding: 1.1rem 0.8rem;
+  color: var(--night-muted);
+  font-size: var(--t-sm);
+  border-top: 1px dashed var(--night-line);
+  border-bottom: 1px dashed var(--night-line);
+}
+.arena-lanes:has(.lane--empty) + .arena-scale { display: none; }
+.lane-band { display: flex; flex-direction: column; align-items: flex-end; gap: 0.05rem; line-height: 1.15; }
+.lane-price { color: var(--paper); font-weight: 700; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.lane-price small { color: var(--night-muted); font-weight: 600; font-size: 0.7rem; }
+.arena-finish-big--words { font-size: clamp(1.4rem, 2.6vw, 2rem) !important; line-height: 1.1; }
+
+.result-card-real {
+  font-size: var(--t-xs);
+  font-weight: 700;
+  color: var(--pine);
+  border: 1.5px solid currentColor;
+  border-radius: 999px;
+  padding: 0.12rem 0.55rem;
+}
+.result-card--band .result-card-face { aspect-ratio: auto; }
+.result-card-pct--band { flex-direction: column; align-items: flex-start; gap: 0.15rem; margin-top: 1rem; padding-right: 4.5rem; }
+.result-card-pct--band strong { font-size: clamp(2rem, 4vw, 2.8rem) !important; line-height: 1 !important; }
+.result-card-pct--band span { max-width: 30ch !important; font-size: var(--t-sm) !important; color: var(--muted); padding-bottom: 0 !important; }
+.result-card--band .result-card-stamp { top: 3.4rem; }
+.live-stage .arena--full { --lane-cols: 14.5rem minmax(0, 1fr) 9rem 3.6rem; }
+@media (min-width: 1021px) { .live-stage > .arena { position: sticky; top: 1rem; } }
+.live-side .shopper-panel { order: -1; }
+
+.shopper-panel {
+  background: var(--card);
+  border: 1.5px solid var(--ink);
+  border-radius: 20px;
+  padding: 1.1rem 1.2rem;
+  box-shadow: var(--shadow);
+}
+.shopper-panel header { display: flex; justify-content: space-between; align-items: baseline; gap: 0.6rem; flex-wrap: wrap; }
+.shopper-panel h2 { margin: 0; font-size: var(--t-lg); }
+.shopper-only {
+  font-size: var(--t-xs);
+  font-weight: 700;
+  color: var(--clay-deep);
+  background: rgba(184, 67, 47, 0.1);
+  border-radius: 999px;
+  padding: 0.15rem 0.6rem;
+}
+.shopper-winner { margin: 0.9rem 0 0.4rem; padding: 0.9rem; border-radius: 14px; background: rgba(29, 92, 69, 0.08); }
+.shopper-winner .meta { margin: 0; }
+.shopper-winner-price { margin: 0.1rem 0 0.7rem; font-family: var(--font-display), Georgia, serif; font-size: var(--t-xl); line-height: 1.05; letter-spacing: -0.03em; }
+.shopper-winner-price span { font-family: var(--font-sans), sans-serif; font-size: var(--t-base); letter-spacing: 0; color: var(--muted); }
+.button.buy { display: block; text-align: center; background: var(--pine); font-size: var(--t-md); padding: 0.85rem 1.2rem; margin-bottom: 0.6rem; }
+.button.buy:hover { background: #144833; }
+
+.standing { list-style: none; margin: 0.8rem 0 0; padding: 0; display: grid; gap: 0.1rem; }
+.standing li { display: grid; grid-template-columns: 1.6rem minmax(0, 1fr) auto; gap: 0.6rem; align-items: center; padding: 0.45rem 0; border-top: 1px solid var(--line); }
+.standing li.is-first .standing-price { color: var(--pine); }
+.standing-rank { font-weight: 700; color: var(--muted); font-variant-numeric: tabular-nums; }
+.standing-store { display: flex; flex-direction: column; min-width: 0; font-weight: 650; overflow-wrap: anywhere; }
+.standing-store small { font-weight: 500; color: var(--muted); font-size: var(--t-xs); }
+.standing-price { font-weight: 700; font-variant-numeric: tabular-nums; white-space: nowrap; }
+
+.outcome-row { margin-top: 0.9rem; padding-top: 0.8rem; border-top: 1.5px dashed var(--line); }
+.outcome-row .meta { margin: 0 0 0.5rem; }
+.outcome-buttons { display: flex; flex-wrap: wrap; gap: 0.4rem; }
+button.ghost, .button.ghost { background: transparent; color: var(--ink); border: 1.5px solid var(--line); padding: 0.5rem 0.9rem; font-size: var(--t-sm); }
+button.ghost:hover { border-color: var(--ink); background: transparent; }
+
+.live-note h2 { margin: 0 0 0.3rem; font-size: var(--t-lg); }
+.live-note p { margin: 0; }
+
+.arena-empty {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 1.4rem;
+  align-items: center;
+  background: var(--night);
+  color: var(--paper);
+  border-radius: 24px;
+  padding: clamp(1.2rem, 3vw, 2rem);
+}
+.arena-empty h2 { margin: 0; font-size: var(--t-xl); color: var(--paper); }
+.arena-empty p { margin: 0.5rem 0 0; color: var(--night-muted); max-width: 56ch; }
+.arena-empty-clock {
+  width: 7rem;
+  height: 7rem;
+  border-radius: 999px;
+  border: 3px solid var(--night-line);
+  display: grid;
+  place-items: center;
+  font-family: var(--font-display), Georgia, serif;
+  font-size: 1.9rem;
+  color: var(--night-muted);
+  font-variant-numeric: tabular-nums;
+}
+.arena-empty-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 0.6rem 1.2rem; margin-top: 1rem !important; }
+.arena-empty-actions .button { background: var(--paper); color: var(--night); }
+.arena-empty-actions .button:hover { background: #fff; }
+.arena-empty-actions a:not(.button) { color: var(--paper); }
+
+.request-prices { margin-top: clamp(2.4rem, 5vw, 3.4rem); }
+.request-prices h2 { margin: 0; font-size: var(--t-xl); }
+.request-prices .section-head .meta { margin: 0.4rem 0 1rem; max-width: 70ch; }
+.request-foot { margin-top: 2rem; display: grid; gap: 0.9rem; }
+.request-foot .skill-link { margin: 0; max-width: 70ch; color: var(--muted); }
+.request-foot details.report summary { cursor: pointer; font-weight: 650; }
+.request-foot details.report form { margin-top: 0.8rem; display: grid; gap: 0.6rem; }
+.request-foot details.report p { margin: 0; color: var(--muted); font-size: var(--t-sm); }
+.request-foot details.report button { justify-self: start; }
+
+/* ---------- homepage: ask status + real-numbers strip ---------- */
+
+.ask-status { margin: 0.6rem 0 0; font-size: var(--t-sm); font-weight: 650; }
+.ask-status--error { color: var(--clay-deep); }
+.ask-status--sending { color: var(--pine); }
+
+.live-strip {
+  margin-top: clamp(1.6rem, 4vw, 2.6rem);
+  background: var(--card);
+  border: 1.5px solid var(--ink);
+  border-radius: 22px;
+  padding: 1.1rem clamp(1rem, 2.5vw, 1.6rem) 1.2rem;
+}
+.live-strip-head { display: flex; flex-wrap: wrap; align-items: baseline; justify-content: space-between; gap: 0.2rem 1.2rem; }
+.home .live-strip h2 { margin: 0; font-size: var(--t-lg); display: inline-flex; align-items: center; gap: 0.55rem; }
+.live-strip-head .meta { margin: 0; font-size: var(--t-xs); }
+.live-dot { width: 0.6rem; height: 0.6rem; border-radius: 999px; background: var(--pine); box-shadow: 0 0 0 4px rgba(29, 92, 69, 0.15); }
+.live-strip-empty { margin: 0.8rem 0 0; font-family: var(--font-display), Georgia, serif; font-size: var(--t-md); }
+.live-strip-empty a { font-family: var(--font-sans), sans-serif; font-size: var(--t-sm); font-weight: 650; margin-left: 0.4rem; }
+.live-strip-body { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.3fr); gap: 1.2rem 2rem; margin-top: 0.9rem; }
+.live-numbers { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0.8rem 1rem; margin: 0; }
+.live-numbers dt { font-size: var(--t-xs); color: var(--muted); font-weight: 650; }
+.live-numbers dd { margin: 0; font-family: var(--font-display), Georgia, serif; font-size: var(--t-xl); line-height: 1.05; letter-spacing: -0.03em; font-variant-numeric: tabular-nums; }
+.live-latest h3 { margin: 0 0 0.4rem; font-size: var(--t-md); }
+.live-latest ul { list-style: none; margin: 0; padding: 0; }
+.live-latest li { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 0.1rem 1rem; padding: 0.4rem 0; border-top: 1px solid var(--line); }
+.live-latest li a { font-weight: 650; text-underline-offset: 0.2em; }
+.live-more { display: inline-block; margin-top: 0.5rem; font-size: var(--t-sm); font-weight: 650; }
+
+.live-status { font-size: var(--t-xs); font-weight: 650; color: var(--muted); }
+.live-status--open { color: var(--pine); }
+.live-status--closing { color: var(--clay-deep); }
+
+/* ---------- the board ---------- */
+
+.board-page { padding-bottom: 1rem; }
+.board-grid { list-style: none; margin: 0.4rem 0 0; padding: 0; display: grid; align-items: start; grid-template-columns: repeat(auto-fill, minmax(min(100%, 20rem), 1fr)); gap: 1rem; }
+.board-card {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  background: var(--card);
+  border: 1px solid var(--line);
+  border-radius: 18px;
+  padding: 1rem 1.1rem;
+  box-shadow: var(--shadow);
+}
+.board-card--open { border-color: var(--pine); box-shadow: 0 0 0 1px var(--pine), var(--shadow); }
+.board-card-top { display: flex; flex-wrap: wrap; align-items: center; gap: 0.4rem 0.7rem; font-size: var(--t-xs); color: var(--muted); }
+.board-card-top time { margin-left: auto; }
+.board-card-top .live-status { text-transform: uppercase; letter-spacing: 0.1em; }
+.board-card--open .board-card-top .live-status::before { content: ""; display: inline-block; width: 0.45rem; height: 0.45rem; margin-right: 0.35rem; border-radius: 999px; background: var(--pine); vertical-align: 0.05rem; }
+.board-test { border: 1px dashed var(--muted); border-radius: 999px; padding: 0 0.45rem; }
+.board-card-title { margin: 0.2rem 0 0; font-family: var(--font-display), Georgia, serif; font-size: var(--t-md); line-height: 1.15; }
+.board-card-title a { text-decoration: none; }
+.board-card-title a:hover { text-decoration: underline; }
+.board-card-status { margin: 0; font-size: var(--t-sm); color: var(--ink); }
+.board-card .board-prices { list-style: none; margin: 0.3rem 0 0; padding: 0; }
+.board-card .board-prices li { display: flex; justify-content: space-between; gap: 0.8rem; padding: 0.3rem 0; border-top: 1px solid var(--line); font-size: var(--t-sm); }
+.board-card .board-prices a { overflow-wrap: anywhere; }
+.board-price { font-weight: 700; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.board-card-foot { margin: auto 0 0; padding-top: 0.4rem; font-size: var(--t-xs); }
+.board-card-foot a { font-weight: 650; color: var(--ink); }
+.board-empty { padding: 2rem; border: 1.5px dashed var(--line); border-radius: 18px; text-align: center; }
+.board-empty p { margin: 0 0 0.8rem; font-family: var(--font-display), Georgia, serif; font-size: var(--t-lg); }
+
+/* ---------- info pages: for agents, for stores, agent scorecards ---------- */
+
+.info-page { padding-bottom: 1rem; }
+.info-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 1rem; }
+.info-card { background: var(--card); border: 1px solid var(--line); border-radius: 18px; padding: 1.1rem 1.2rem; box-shadow: var(--shadow); min-width: 0; }
+.info-card h2 { margin: 0 0 0.5rem; font-size: var(--t-lg); }
+.info-card p { margin: 0.4rem 0 0; }
+.info-card pre { margin: 0.5rem 0; padding: 0.7rem 0.8rem; background: var(--night); color: var(--paper); border-radius: 12px; font-size: var(--t-xs); white-space: pre-wrap; overflow-wrap: anywhere; }
+.info-card code { overflow-wrap: anywhere; }
+.info-rules { margin-top: 1.6rem; }
+.info-rules h2 { margin: 0 0 0.4rem; font-size: var(--t-lg); }
+.info-rules ul { margin: 0; padding-left: 1.2rem; display: grid; gap: 0.2rem; }
+.info-page > .meta { margin-top: 1.4rem; }
+
+.store-page .page-head h1 { overflow-wrap: anywhere; }
+.store-empty { margin: 0 0 1rem; }
+.store-numbers { grid-template-columns: repeat(4, minmax(0, 1fr)); margin: 0 0 1.4rem; padding: 1rem 1.2rem; background: var(--card); border: 1.5px solid var(--ink); border-radius: 20px; }
+
+.scorecard--real { max-width: 44rem; }
+.scorecard--real .scorecard-head h2 { margin: 0; font-size: var(--t-xl); }
+.scorecard--real .scorecard-stats { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+.record-bands { margin-top: 1rem; }
+.record-bands h3 { margin: 0 0 0.4rem; font-size: var(--t-md); }
+.record-bands ul { list-style: none; margin: 0; padding: 0; display: grid; gap: 0.35rem; }
+.record-bands li { display: grid; grid-template-columns: minmax(0, 1.4fr) minmax(0, 1fr) 2rem; gap: 0.7rem; align-items: center; font-size: var(--t-sm); }
+.record-band-bar { height: 0.55rem; border-radius: 999px; background: var(--paper-deep); overflow: hidden; }
+.record-band-bar > span { display: block; height: 100%; background: var(--pine); border-radius: 999px; }
+.record-band-count { text-align: right; font-weight: 700; font-variant-numeric: tabular-nums; }
+
+/* ---------- responsive ---------- */
+
+@media (max-width: 1020px) {
+  .live-stage { grid-template-columns: minmax(0, 1fr); }
+  .live-strip-body { grid-template-columns: minmax(0, 1fr); }
+}
+
+@media (max-width: 640px) {
+  .info-grid { grid-template-columns: minmax(0, 1fr); }
+  .arena-empty { grid-template-columns: minmax(0, 1fr); }
+  .arena-empty-clock { width: 4.6rem; height: 4.6rem; font-size: 1.3rem; }
+  .arena-empty h2 { font-size: var(--t-lg); }
+  .scorecard--real .scorecard-stats { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .live-numbers dd { font-size: var(--t-lg); }
+  .lane-price small { display: none; }
+  /* Real store names are long domains: give the name its own row, band and price under it. */
+  .live-stage .arena--full { --lane-cols: minmax(0, 1fr) 2.6rem; }
+  .live-stage .lane { grid-template-areas: "name stamp" "band stamp" "track stamp"; }
+  .live-stage .lane-band { flex-direction: row; flex-wrap: wrap; align-items: baseline; justify-content: flex-start; gap: 0 0.5rem; padding-left: 2.1rem; }
+  .live-stage .lane-label { overflow: visible; text-overflow: clip; white-space: normal; overflow-wrap: anywhere; }
+  .live-stage .arena-scale-track { margin-right: calc(2.6rem + 0.7rem + 1.9rem); }
+  .request-prices h2 { font-size: var(--t-lg); }
+  .request-prices .section-head { display: block; }
+  .store-numbers { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}

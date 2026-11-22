@@ -132,7 +132,10 @@ describe("no private field on a public surface", () => {
   it("home page", async () => {
     const { default: HomePage } = await import("../app/page");
     const html = renderToStaticMarkup(await HomePage({ searchParams: Promise.resolve({}) }));
-    expect(html).toContain(`/r/${posted.id}`);
+    // The homepage strip lists outside requests only; this one came from a test host, so it is not
+    // dressed up as real activity there. It is on the board.
+    expect(html).not.toContain(`/r/${posted.id}`);
+    expect(html).toContain("No real requests yet. Be the first.");
     assertNoPrivateHtml("/", html);
   });
 

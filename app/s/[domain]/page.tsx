@@ -34,21 +34,39 @@ export default async function StorePage({ params }: { params: Promise<{ domain: 
   const claimOpen = bidsEnabled() && storeRulesEnabled();
   const removal = `mailto:${CONTACT_EMAIL}?subject=${encodeURIComponent(`Remove ${data.domain} from HaggleBoard`)}`;
   return (
-    <main>
-      <section className="hero">
+    <main className="info-page store-page">
+      <section className="page-head">
         <p className="kicker">Store · {data.domain}</p>
         <h1>{data.domain} and AI shopping agents</h1>
         <p className="lede">
-          In the last 7 days, AI shopping agents asked HaggleBoard for products this store carries {data.requests_7d}{" "}
-          time{data.requests_7d === 1 ? "" : "s"}. In the last 30 days: {data.requests_30d}. Counted from outside requests
-          only, as of {data.as_of.slice(0, 16).replace("T", " ")} UTC; our own tests and tools are left out.
-        </p>
-        <p className="lede">
-          Of the {data.compared_30d} closed request{data.compared_30d === 1 ? "" : "s"} in the last 30 days that had a
-          public price to compare, this store had the best public price in {data.best_public_30d}.
+          How often AI shopping agents asked HaggleBoard for products this store carries, and how its public price did.
+          Outside requests only, as of {data.as_of.slice(0, 16).replace("T", " ")} UTC; our own tests and tools are left
+          out.
         </p>
       </section>
-      <section className="panel">
+      {data.requests_30d === 0 ? (
+        <p className="live-strip-empty store-empty">No outside requests for products this store carries in the last 30 days yet.</p>
+      ) : null}
+      <dl className="live-numbers store-numbers">
+        <div>
+          <dt>Requests, last 7 days</dt>
+          <dd>{data.requests_7d}</dd>
+        </div>
+        <div>
+          <dt>Requests, last 30 days</dt>
+          <dd>{data.requests_30d}</dd>
+        </div>
+        <div>
+          <dt>Closed with a public price to compare</dt>
+          <dd>{data.compared_30d}</dd>
+        </div>
+        <div>
+          <dt>Had the best public price</dt>
+          <dd>{data.compared_30d === 0 ? "none yet" : `${data.best_public_30d} of ${data.compared_30d}`}</dd>
+        </div>
+      </dl>
+      <div className="info-grid">
+      <section className="info-card">
         <h2>Claim this listing</h2>
         <p>
           A store that claims its listing gets a store key. With it the store can set one standing rule: beat an order
@@ -63,15 +81,16 @@ export default async function StorePage({ params }: { params: Promise<{ domain: 
           To claim, <a href="/contact">contact us</a> from an address on {data.domain}.
         </p>
       </section>
-      <section className="panel">
+      <section className="info-card">
         <h2>Remove this store</h2>
         <p>
           Store owners can ask us to stop reading their public prices and take this page down:{" "}
           <a href={removal}>email {CONTACT_EMAIL}</a>. A removed store has no page and is not crawled.
         </p>
       </section>
+      </div>
       <p className="meta">
-        <a href="/board">The board</a> · <a href="/api/stats">Stats</a>
+        <a href="/stores">What stores see on HaggleBoard</a> · <a href="/board">The board</a> · <a href="/api/stats">Stats</a>
       </p>
     </main>
   );

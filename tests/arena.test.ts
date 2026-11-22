@@ -222,7 +222,10 @@ describe("homepage copy", () => {
     expect(src).toContain("Tell your AI agent what you want.");
     expect(src).toContain("Stores compete to give it the best deal.");
     expect(src).toContain("What are you looking for?");
-    expect(src).toMatch(/action="\/results"/);
+    // The input posts for real: /find without JavaScript, POST /api/requests with it.
+    expect(src).toMatch(/action="\/find"/);
+    expect(src).toContain('name="q"');
+    expect(src).toContain("<AskEnhancer");
     expect(src).toContain("/api/mcp");
     expect(src).toContain('href="/llms.txt"');
     expect(src).toContain('href="/skill.md"');
@@ -236,7 +239,8 @@ describe("homepage copy", () => {
     expect(src).toContain("Rankings are not for sale");
     // Existing features stay reachable.
     expect(src).toContain("/q/${question.slug}");
-    expect(src).toContain("/r/${item.id}");
+    expect(src).toContain("<LiveStrip");
+    expect(src).toContain('href="/board"');
     expect(src).toContain("<NeedForm />");
     expect(src).toContain('id="mcp"');
   });

@@ -12,16 +12,12 @@ export function Shell({ children }: { children: ReactNode }) {
             <small>Stores compete for your agent</small>
           </span>
         </a>
-        <nav className="nav">
+        <nav className="nav" aria-label="Main">
           <a href="/#how">How it works</a>
+          <a href="/board">The board</a>
           <a href="/arena/demo">Demo auction</a>
-          <a href="/#agents">For agents</a>
-          <a href="/llms.txt">llms.txt</a>
-          <a href="/bot">Crawler</a>
-          <a href="/board">Board</a>
-          <a href="/skill.md">Skill</a>
-          <a href="/#mcp">MCP</a>
-          <a href="/api/offers">Bid API</a>
+          <a href="/agents">For agents</a>
+          <a href="/stores">For stores</a>
         </nav>
       </header>
       {children}
@@ -36,7 +32,8 @@ export function Shell({ children }: { children: ReactNode }) {
         </p>
         <p>
           <a href="/terms">Terms</a> · <a href="/privacy">Privacy</a> · <a href="/contact">Contact</a> ·{" "}
-          <a href="/bot">Crawler</a> · <a href="/#mcp">MCP</a> · <a href="/api/offers">Bid API</a>
+          <a href="/bot">Crawler</a> · <a href="/llms.txt">llms.txt</a> · <a href="/skill.md">Skill</a> ·{" "}
+          <a href="/#mcp">MCP</a> · <a href="/api/stats">Stats</a> · <a href="/api/offers">Bid API</a>
         </p>
       </footer>
     </div>
