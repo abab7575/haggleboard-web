@@ -213,7 +213,7 @@ button.ghost:hover { border-color: var(--ink); background: transparent; }
 .info-page > .meta { margin-top: 1.4rem; }
 
 .store-page .page-head h1 { overflow-wrap: anywhere; }
-.store-empty { margin: 0 0 1rem; }
+.store-empty { margin: 0 0 1.4rem; padding: 1rem 1.2rem; background: var(--card); border: 1.5px dashed var(--line); border-radius: 20px; }
 .store-numbers { grid-template-columns: repeat(4, minmax(0, 1fr)); margin: 0 0 1.4rem; padding: 1rem 1.2rem; background: var(--card); border: 1.5px solid var(--ink); border-radius: 20px; }
 
 .scorecard--real { max-width: 44rem; }

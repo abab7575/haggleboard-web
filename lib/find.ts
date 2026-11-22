@@ -101,10 +101,22 @@ function esc(value: unknown): string {
     .replace(/"/g, "&quot;");
 }
 
-const STYLE = "body{font-family:system-ui,sans-serif;max-width:46rem;margin:2rem auto;padding:0 1rem;line-height:1.5}code{background:#f3f3f3;padding:0 .2rem}li{margin:.4rem 0}";
+/** The site's colours and type, inline so this page stays one response with no assets. */
+const STYLE =
+  "body{margin:0;background:#f3eadc;color:#241910;font-family:system-ui,-apple-system,'Segoe UI',sans-serif;line-height:1.55}" +
+  "main{max-width:46rem;margin:0 auto;padding:1.2rem 1rem 3rem}" +
+  "header{display:flex;align-items:center;gap:.6rem;padding-bottom:.9rem;border-bottom:1px solid #241910;margin-bottom:1.4rem}" +
+  "header a{text-decoration:none;font-family:Georgia,serif;font-size:1.25rem;font-weight:600;color:inherit}" +
+  ".seal{display:inline-grid;place-items:center;width:2.2rem;height:2.2rem;border-radius:999px;background:#241910;color:#f3eadc;font-family:Georgia,serif;font-size:.95rem}" +
+  "h1{font-family:Georgia,serif;font-weight:600;letter-spacing:-.02em;line-height:1.1;font-size:clamp(1.8rem,6vw,2.6rem);margin:0 0 .8rem}" +
+  "h2{font-family:Georgia,serif;font-weight:600;margin:1.6rem 0 .4rem}" +
+  "a{color:#1d5c45;font-weight:600}" +
+  "code{background:#fffaf3;border:1px solid #ddcfbb;border-radius:6px;padding:0 .3rem;overflow-wrap:anywhere}" +
+  "ol{padding-left:1.2rem}li{margin:.45rem 0}" +
+  "hr{border:0;border-top:1px solid #ddcfbb;margin:2rem 0 1rem}small{color:#6d6256;font-size:.8rem}";
 
 function page(title: string, body: string): string {
-  return `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="robots" content="noindex,nofollow"><title>${esc(title)} · HaggleBoard</title><style>${STYLE}</style></head><body>${body}<hr><p><small>${esc(DISCLAIMER)}</small></p></body></html>`;
+  return `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="robots" content="noindex,nofollow"><title>${esc(title)} · HaggleBoard</title><style>${STYLE}</style></head><body><main><header><span class="seal">Hb</span><a href="/">HaggleBoard</a></header>${body}<hr><p><small>${esc(DISCLAIMER)}</small></p></main></body></html>`;
 }
 
 export function explainHtml(reason: string, site: string): string {

@@ -46,7 +46,7 @@ export default async function StorePage({ params }: { params: Promise<{ domain: 
       </section>
       {data.requests_30d === 0 ? (
         <p className="live-strip-empty store-empty">No outside requests for products this store carries in the last 30 days yet.</p>
-      ) : null}
+      ) : (
       <dl className="live-numbers store-numbers">
         <div>
           <dt>Requests, last 7 days</dt>
@@ -65,6 +65,7 @@ export default async function StorePage({ params }: { params: Promise<{ domain: 
           <dd>{data.compared_30d === 0 ? "none yet" : `${data.best_public_30d} of ${data.compared_30d}`}</dd>
         </div>
       </dl>
+      )}
       <div className="info-grid">
       <section className="info-card">
         <h2>Claim this listing</h2>
