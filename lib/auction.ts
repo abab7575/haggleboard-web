@@ -59,6 +59,8 @@ export type AuctionOffer = {
   test?: boolean;
   /** A private offer under a store rule: the rule's maximum discount (private; its band is public). */
   discount_cap_percent?: number | null;
+  /** A private offer priced from the shopper's held order (true) or from the auction's leader (false). */
+  held_based?: boolean;
 };
 
 export type IncomingOffer = Omit<AuctionOffer, "event_id" | "at" | "observed_at" | "confirmed"> & {
@@ -151,6 +153,7 @@ export function offerFromEvent(event: EventRow): AuctionOffer | null {
     confirmed,
     ...(event.public.test === true ? { test: true } : {}),
     ...(typeof event.private.rule_cap_percent === "number" ? { discount_cap_percent: event.private.rule_cap_percent } : {}),
+    ...(typeof event.private.held_based === "boolean" ? { held_based: event.private.held_based } : {}),
   };
 }
 
@@ -225,6 +228,21 @@ export function bestPublic(offers: AuctionOffer[], currency: string, reference?:
   const publics = offers.filter((offer) => offer.source === "public_price" && offer.available && offer.currency === currency);
   const ordered = reference == null ? rankAuction(publics) : standingOrder(publics, reference);
   return ordered[0] ?? null;
+}
+
+/**
+ * The standing plus every store's latest public price. A store whose private offer beats its own
+ * public price still has that public price on the board, and bands are measured against all of them.
+ */
+export function priceBoard(current: AuctionOffer[], all: AuctionOffer[]): AuctionOffer[] {
+  const latest = new Map<string, AuctionOffer>();
+  for (const offer of all) {
+    if (offer.source !== "public_price") continue;
+    const seen = latest.get(offer.store_domain);
+    if (!seen || offer.at > seen.at) latest.set(offer.store_domain, offer);
+  }
+  const extra = [...latest.values()].filter((offer) => !current.includes(offer));
+  return [...current, ...extra];
 }
 
 /** How far an offer is under the best public price in its currency, as a coarse band. */
@@ -302,6 +320,9 @@ export function privateBandDisclosure(input: {
 export function publicBandFor(offer: AuctionOffer, current: AuctionOffer[], all: AuctionOffer[], reference?: string | number): Band {
   const plain = bandFor(offer, current, reference);
   if (offer.source !== "private_offer") return plain;
+  // An offer that answered the auction's leader (no held order in the request) carries nothing
+  // about a held price, so it shows its plain band. Unknown (older events) is treated as held-based.
+  if (offer.held_based === false) return plain;
   // Every public price shown in this auction is public information, old or new, so all count here.
   const publics = new Map<string, number>();
   for (const item of current) {
@@ -409,6 +430,7 @@ export function offerEvents(
         title: item.title,
         expires_at: item.expires_at,
         ...(item.discount_cap_percent != null ? { rule_cap_percent: item.discount_cap_percent } : {}),
+        ...(typeof item.held_based === "boolean" ? { held_based: item.held_based } : {}),
       },
     });
     if (afterClose || !window) continue;
@@ -417,7 +439,7 @@ export function offerEvents(
     const ranked = currentOffers(known);
     const after = leaderOf(ranked, reference);
     if (after && !sameLeader(before, after)) {
-      events.push(leadEvent(requestId, at, after, before, publicBandFor(after, ranked, known, reference), after.test === true, bandFor(after, ranked, reference)));
+      events.push(leadEvent(requestId, at, after, before, publicBandFor(after, priceBoard(ranked, known), known, reference), after.test === true, bandFor(after, priceBoard(ranked, known), reference)));
     }
   }
   return { events, offers: known };
@@ -464,7 +486,7 @@ export function withdrawEvents(
     },
   ];
   if (after && !sameLeader(before, after)) {
-    events.push(leadEvent(requestId, new Date(now + 1).toISOString(), after, before, publicBandFor(after, ranked, remaining, reference), after.test === true, bandFor(after, ranked, reference)));
+    events.push(leadEvent(requestId, new Date(now + 1).toISOString(), after, before, publicBandFor(after, priceBoard(ranked, remaining), remaining, reference), after.test === true, bandFor(after, priceBoard(ranked, remaining), reference)));
   }
   return events;
 }
@@ -513,8 +535,8 @@ export function computeClose(events: EventRow[], window: AuctionWindow): ClosedR
     .filter((offer): offer is AuctionOffer => offer !== null);
   const ranked = currentOffers(offers);
   const winner = leaderOf(ranked, window.opened_at);
-  const plain = winner ? bandFor(winner, ranked, window.opened_at) : null;
-  const band = winner ? publicBandFor(winner, ranked, offers, window.opened_at) : null;
+  const plain = winner ? bandFor(winner, priceBoard(ranked, offers), window.opened_at) : null;
+  const band = winner ? publicBandFor(winner, priceBoard(ranked, offers), offers, window.opened_at) : null;
   return {
     winner,
     result: !winner ? "none" : winner.confirmed ? "won" : "last_seen",
@@ -544,7 +566,7 @@ export async function eventsWithLazyClose(store: Store, requestId: string, opts:
   const posted = events.find((event) => event.type === "request.posted")!;
   const result = computeClose(events, window);
   const ranked = currentOffers(offersFromEvents(events, window.deadline));
-  const reference = result.winner ? bestPublic(ranked, result.winner.currency, window.opened_at) : null;
+  const reference = result.winner ? bestPublic(priceBoard(ranked, offersFromEvents(events, window.deadline)), result.winner.currency, window.opened_at) : null;
   // The held order comes from the log's own private request.holding event.
   const held = events.find((event) => event.type === "request.holding")?.private ?? null;
   const quantity = Math.max(1, Number(posted.private.quantity ?? 1) || 1);
@@ -636,7 +658,7 @@ export function posterAuction(events: EventRow[], now = Date.now()) {
     currency: offer.currency,
     available: offer.available,
     product_url: offer.product_url,
-    band: bandFor(offer, ranked, window.opened_at),
+    band: bandFor(offer, priceBoard(ranked, offers), window.opened_at),
     expires_at: offer.expires_at,
     observed_at: offer.observed_at,
     confirmed: offer.confirmed,

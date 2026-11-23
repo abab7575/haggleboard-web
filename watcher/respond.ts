@@ -58,6 +58,7 @@ export async function respondUnderRule(
         title: offer.title,
         expires_at: offer.expires_at,
         discount_cap_percent: rule.beat_by_up_to_percent,
+        held_based: request.need.holding != null,
         ...(opts.test ? { test: true } : {}),
       },
     ],

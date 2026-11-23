@@ -241,6 +241,7 @@ export function LiveArena({ requestId, initial, shareUrl }: { requestId: string;
           can watch it run. They are not real stores, their prices are invented, and nothing here counts anywhere.
         </p>
       ) : null}
+      <div className="live-main">
       <Arena
         request={data.request}
         durationSec={data.durationSec}
@@ -255,6 +256,8 @@ export function LiveArena({ requestId, initial, shareUrl }: { requestId: string;
         emptyLanes="No store has answered yet. Stores that may carry it are being checked."
         hideFinish={Boolean(result)}
       />
+      <ArenaKey testStores={data.testStores} />
+      </div>
       <aside className="live-side" aria-label={shopper ? "Your offers and result" : "Result"}>
         {result && result.winner && result.winnerName ? (
           <ResultCard
@@ -406,6 +409,39 @@ function ShopperPanel({
           )}
         </div>
       ) : null}
+    </section>
+  );
+}
+
+/** What the words on the lanes mean. Sits under the arena, so the left column has no dead space. */
+function ArenaKey({ testStores }: { testStores: boolean }) {
+  return (
+    <section className="arena-key panel" aria-labelledby="arena-key-title">
+      <h2 id="arena-key-title">Reading the board</h2>
+      <dl>
+        <div>
+          <dt>confirmed today</dt>
+          <dd>We read this price from the store during this auction.</dd>
+        </div>
+        <div>
+          <dt>last seen, not confirmed</dt>
+          <dd>From our saved snapshot. Shown with its date. It cannot win while a confirmed price is on the board.</dd>
+        </div>
+        <div>
+          <dt>no longer listed</dt>
+          <dd>A live read found it gone or sold out at that store, so its old price is out.</dd>
+        </div>
+        <div>
+          <dt>private offer</dt>
+          <dd>A store went under its public price for this asker only. Everyone else sees a rough band, or no band when a band could hint at what the asker holds.</dd>
+        </div>
+        {testStores ? (
+          <div>
+            <dt>test store</dt>
+            <dd>Made up for local testing. Not a real store and never counted.</dd>
+          </div>
+        ) : null}
+      </dl>
     </section>
   );
 }

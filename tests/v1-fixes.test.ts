@@ -444,6 +444,8 @@ describe("4. test arena (TEST_STORES=1, local only)", () => {
     const leads = events.filter((e) => e.type === "lead.changed");
     expect(leads.length).toBeGreaterThanOrEqual(4);
     expect(new Set(leads.map((e) => e.store_domain)).size).toBeGreaterThanOrEqual(3);
+    // No held order here, so the offers say nothing about one: their bands are shown.
+    expect(leads.some((e) => String(e.public.band).startsWith("under_"))).toBe(true);
     // A lead change in the last part of the clock.
     expect(leads.some((e) => Date.parse(e.at) - opened >= 0.8 * 120_000)).toBe(true);
     const fromTests = events.filter((e) => e.store_domain && TEST_STORE_DOMAINS.includes(e.store_domain));
@@ -455,6 +457,8 @@ describe("4. test arena (TEST_STORES=1, local only)", () => {
     const closed = events.find((e) => e.type === "auction.closed")!;
     expect(closed.internal).toBe(true);
     expect(closed.public.test).toBe(true);
+    // Bands are measured against every store's public price, including stores whose private offer beat their own.
+    expect(closed.public.band).toMatch(/^under_/);
     // Private offers came from the store rules engine.
     expect(events.some((e) => e.type === "offer.made" && e.public.source === "private_offer" && e.public.via === "store_rule")).toBe(true);
 
