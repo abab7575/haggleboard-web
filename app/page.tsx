@@ -127,7 +127,7 @@ export default async function HomePage({ searchParams }: { searchParams: Promise
         <div className="money-intro">
           <h2 id="money-title">Why the store can charge you less</h2>
           <p>
-            When a store sells on a big shopping site like Amazon, the site takes a slice of every sale. When your agent
+            When a store sells on one of the big shopping sites, the site takes a slice of every sale. When your agent
             buys from the store&apos;s own website, the store pays nothing for the sale. So it can give you a better price
             and still come out ahead.
           </p>

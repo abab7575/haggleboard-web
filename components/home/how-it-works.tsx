@@ -142,7 +142,7 @@ export function HowItWorks() {
         <h3>You buy direct</h3>
         <p>
           You check out on the store&apos;s own website. Selling there costs the store less than selling on a big
-          shopping site like Amazon, so it can charge you less.
+          shopping site, so it can charge you less.
         </p>
       </li>
     </ol>
@@ -156,7 +156,7 @@ export function MoneyDiagram() {
       <div className="money-flag">Illustrative numbers</div>
       <div className="money-row">
         <p className="money-label">
-          <strong>On a big shopping site like Amazon</strong>
+          <strong>On a big shopping site</strong>
           <span>You pay $100</span>
         </p>
         <div className="money-bar" role="img" aria-label="Of $100, the store keeps $75 and the shopping site takes $25 in selling fees and ads">
