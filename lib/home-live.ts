@@ -21,6 +21,8 @@ export type LiveRow = {
   stores: number;
   winner: string | null;
   band_label: string | null;
+  /** "last_seen" when no offer was confirmed live: never shown as a win. */
+  result: "won" | "last_seen" | "none" | null;
 };
 
 export async function liveRow(store: Store, row: { id: string; created_at: string; need_json: string }, now = Date.now()): Promise<LiveRow> {
@@ -38,6 +40,7 @@ export async function liveRow(store: Store, row: { id: string; created_at: strin
     stores: events.filter((event) => event.type === "store.joined").length,
     winner: closed && closed.type === "auction.closed" ? (closed.winner?.store.replace(/^www\./, "") ?? null) : null,
     band_label: closed && closed.type === "auction.closed" ? closed.band_label : null,
+    result: closed && closed.type === "auction.closed" ? closed.result : null,
   };
 }
 

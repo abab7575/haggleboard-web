@@ -29,8 +29,10 @@ export async function generateMetadata({ params }: { params: Promise<{ id: strin
   const view = await publicView(id);
   if (!view) return { title: "Request" };
   const summary = requestSummary(view.need, view.offers, view.result.created_at);
+  const stream = await publicStream((await defaultDeps()).store, id);
   // Canonical and OG carry the bare path only. A poster's token lives in their browser, never in a URL.
   return {
+    ...(stream?.test_stores ? { robots: { index: false, follow: false } } : {}),
     title: { absolute: `${summary.title} · HaggleBoard` },
     description: summary.description,
     alternates: { canonical: `/r/${id}` },
@@ -47,12 +49,19 @@ export default async function RequestPage({ params }: { params: Promise<{ id: st
   const summary = requestSummary(need, offers, result.created_at);
   const site = (process.env.SITE_URL?.trim() || "https://haggleboard.com").replace(/\/$/, "");
   const stream = await publicStream(deps.store, id);
+  // Test stores (TEST_STORES=1, local only): no JSON-LD, and the page is kept out of every index.
+  const testStores = stream?.test_stores === true;
   const posted = (await requestEvents(deps.store, id)).find((event) => event.type === "request.posted");
   const handle = typeof posted?.public.handle === "string" ? posted.public.handle : null;
   await logPageRead(deps.store, { kind: "request", path: `/r/${id}`, request_id: id });
   return (
     <main className="request-page">
-      <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: jsonLdText(productJsonLd(need, offers, `${site}/r/${id}`)) }} />
+      {testStores ? null : (
+        <script
+          type="application/ld+json"
+          dangerouslySetInnerHTML={{ __html: jsonLdText(productJsonLd(need, offers, `${site}/r/${id}`, result.created_at ?? Date.now())) }}
+        />
+      )}
       <section className="request-head">
         <p className="kicker">
           Request{result.created_at ? ` · posted ${result.created_at.slice(0, 16).replace("T", " ")} UTC` : ""}

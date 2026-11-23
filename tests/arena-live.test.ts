@@ -39,19 +39,46 @@ const FEED: PublicStream = {
   seconds_left: 0,
   status: "closed",
   now: "2026-11-22T14:22:05.000Z",
+  test_stores: false,
   events: [
     { seq: 1, type: "auction.opened", at: "2026-11-22T14:20:00.000Z", deadline: "2026-11-22T14:22:00.000Z", window_seconds: 120 },
-    { seq: 2, type: "store.joined", at: "2026-11-22T14:20:00.000Z", store: "www.example-run.com", source: "public_price", public_price: "119.95", currency: "USD" },
+    {
+      seq: 2,
+      type: "store.joined",
+      at: "2026-11-22T14:20:00.000Z",
+      store: "www.example-run.com",
+      source: "public_price",
+      public_price: "119.95",
+      currency: "USD",
+      observed_at: "2026-11-22T14:20:00.000Z",
+      confirmed: true,
+      stale: false,
+      test: false,
+    },
     { seq: 3, type: "lead.changed", at: "2026-11-22T14:20:00.000Z", store: "www.example-run.com", source: "public_price", band: "at_public", band_label: "at the best public price" },
-    { seq: 4, type: "store.joined", at: "2026-11-22T14:20:40.000Z", store: "example-road.com", source: "private_offer", public_price: null, currency: null },
-    { seq: 5, type: "lead.changed", at: "2026-11-22T14:20:40.000Z", store: "example-road.com", source: "private_offer", band: "under_0_5", band_label: "up to 5% under the best public price" },
+    {
+      seq: 4,
+      type: "store.joined",
+      at: "2026-11-22T14:20:40.000Z",
+      store: "example-road.com",
+      source: "private_offer",
+      public_price: null,
+      currency: null,
+      observed_at: null,
+      confirmed: true,
+      stale: false,
+      test: false,
+    },
+    { seq: 5, type: "lead.changed", at: "2026-11-22T14:20:40.000Z", store: "example-road.com", source: "private_offer", band: "under_5_10", band_label: "5 to 10% under the best public price" },
     {
       seq: 6,
       type: "auction.closed",
       at: "2026-11-22T14:22:00.000Z",
-      winner: { store: "example-road.com", source: "private_offer" },
-      band: "under_0_5",
-      band_label: "up to 5% under the best public price",
+      winner: { store: "example-road.com", source: "private_offer", confirmed: true, observed_at: "2026-11-22T14:20:40.000Z" },
+      result: "won",
+      result_label: null,
+      band: "under_5_10",
+      band_label: "5 to 10% under the best public price",
       bidders: 2,
       lead_changes: 2,
     },
@@ -75,11 +102,11 @@ describe("feed to arena adapter", () => {
   it("shows a public list price only for a public-price offer, and bands for private ones", () => {
     const arena = feedToArena(FEED);
     expect(arena.bidders).toEqual([
-      { id: "www.example-run.com", name: "example-run.com", tone: "clay", publicPrice: "$119.95" },
+      { id: "www.example-run.com", name: "example-run.com", tone: "clay", publicPrice: "$119.95", priceNote: "confirmed today" },
       { id: "example-road.com", name: "example-road.com", tone: "plum" },
     ]);
     const lead = arena.events.find((e) => e.kind === "lead" && e.bidder === "example-road.com");
-    expect(lead).toEqual({ kind: "lead", at: 40, bidder: "example-road.com", band: BAND_POSITION.under_0_5, label: "up to 5% under" });
+    expect(lead).toEqual({ kind: "lead", at: 40, bidder: "example-road.com", band: BAND_POSITION.under_5_10, label: "5 to 10% under" });
   });
 
   it("closes with the true band label, the winner and when the winning offer came in", () => {
@@ -87,14 +114,87 @@ describe("feed to arena adapter", () => {
     expect(arena.result).toEqual({
       winner: "example-road.com",
       winnerName: "example-road.com",
-      band: "under_0_5",
-      label: "up to 5% under the best public price",
+      band: "under_5_10",
+      label: "5 to 10% under the best public price",
       wonAtSec: 40,
       bidders: 2,
       leadChanges: 2,
+      kind: "won",
+      kindLabel: null,
+      winnerPriceNote: null,
     });
     const close = arena.events.at(-1)!;
-    expect(close).toMatchObject({ kind: "close", winner: "example-road.com", saved_pct: null, label: "up to 5% under the best public price" });
+    expect(close).toMatchObject({ kind: "close", winner: "example-road.com", saved_pct: null, label: "5 to 10% under the best public price" });
+  });
+
+  it("dates every public price, shows withdrawn stores and says plainly when nothing was confirmed", () => {
+    const stale: PublicStream = {
+      ...FEED,
+      events: [
+        FEED.events[0]!,
+        {
+          seq: 2,
+          type: "store.joined",
+          at: "2026-11-22T14:20:00.000Z",
+          store: "old-snapshot.com",
+          source: "public_price",
+          public_price: "99.00",
+          currency: "USD",
+          observed_at: "2026-10-18T10:00:00.000Z",
+          confirmed: false,
+          stale: true,
+          test: false,
+        },
+        {
+          seq: 3,
+          type: "store.joined",
+          at: "2026-11-22T14:20:00.000Z",
+          store: "gone-now.com",
+          source: "public_price",
+          public_price: "89.00",
+          currency: "USD",
+          observed_at: "2026-10-18T10:00:00.000Z",
+          confirmed: false,
+          stale: true,
+          test: false,
+        },
+        { seq: 4, type: "store.withdrawn", at: "2026-11-22T14:20:30.000Z", store: "gone-now.com", reason: "not_found", label: "no longer listed" },
+        {
+          seq: 5,
+          type: "auction.closed",
+          at: "2026-11-22T14:22:00.000Z",
+          winner: { store: "old-snapshot.com", source: "public_price", confirmed: false, observed_at: "2026-10-18T10:00:00.000Z" },
+          result: "last_seen",
+          result_label: "Best last-seen price, not confirmed today",
+          band: "at_public",
+          band_label: "at the best public price",
+          bidders: 2,
+          lead_changes: 0,
+        },
+      ],
+    };
+    const arena = feedToArena(stale);
+    expect(arena.bidders.find((b) => b.id === "old-snapshot.com")?.priceNote).toBe("last seen 18 Oct, not confirmed");
+    expect(arena.bidders.find((b) => b.id === "gone-now.com")?.priceNote).toBe("no longer listed");
+    expect(arena.events.find((e) => e.kind === "withdraw")).toMatchObject({ bidder: "gone-now.com", at: 30 });
+    expect(arena.result).toMatchObject({ kind: "last_seen", kindLabel: "Best last-seen price, not confirmed today" });
+    const html = renderToStaticMarkup(
+      h(ResultCard, {
+        request: "x",
+        winner: "old-snapshot.com",
+        bandLabel: arena.result!.label ?? undefined,
+        wonAtSec: 0,
+        windowSec: 120,
+        stores: 2,
+        demo: false,
+        resultKind: "last_seen",
+        priceNote: arena.result!.winnerPriceNote,
+      }),
+    );
+    const text = visibleText(html);
+    expect(text).toContain("Best last-seen price, not confirmed today");
+    expect(text).toContain("last seen 18 Oct, not confirmed");
+    expect(text).not.toMatch(/\bWon\b/);
   });
 
   it("ignores private fields even if a feed ever carried them", () => {
@@ -113,7 +213,7 @@ describe("feed to arena adapter", () => {
       ...FEED,
       events: [
         FEED.events[0]!,
-        { seq: 2, type: "auction.closed", at: FEED.deadline!, winner: null, band: null, band_label: null, bidders: 0, lead_changes: 0 },
+        { seq: 2, type: "auction.closed", at: FEED.deadline!, winner: null, result: "none", result_label: null, band: null, band_label: null, bidders: 0, lead_changes: 0 },
       ],
     });
     expect(none.joined).toBe(0);
@@ -155,10 +255,12 @@ describe("feed to arena adapter", () => {
     ].join("\n");
     const text = visibleText(html);
     expect(html).not.toMatch(/data-demo-label/);
-    expect(text).toMatch(/example-road.com wins ?, up to 5% under the best public price/);
+    expect(text).toMatch(/example-road.com wins ?, 5 to 10% under the best public price/);
     expect(text).toContain("$119.95 public price");
+    expect(text).toContain("confirmed today");
     expect(text).toContain("Real auction");
-    expect(text).toContain("up to 5%");
+    expect(text).toContain("5 to 10%");
+    expect(text).not.toContain("Test stores");
     expect(text).toContain("After 40 seconds (clock: 2 minutes)");
     expect(text).not.toMatch(/114\.37|\$114/);
   });
@@ -192,7 +294,9 @@ describe("live data end to end, from a real request", () => {
     const closed = feedToArena((await publicStream(store, posted.id, later))!);
     expect(closed.status).toBe("closed");
     expect(closed.result?.winner).toBe("example-private.test");
-    expect(closed.result?.label).toBe("up to 5% under the best public price");
+    // The store has no public price of its own in this auction, so its private band is withheld.
+    expect(closed.result?.label).toBe("private offer");
+    expect(closed.result?.kind).toBe("won");
   });
 
   it("shows an honest empty state when no store answered", async () => {

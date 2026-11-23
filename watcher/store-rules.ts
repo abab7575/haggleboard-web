@@ -9,6 +9,7 @@ import { brandKey } from "../referee/brands.js";
 import { centsToDecimal } from "../referee/money.js";
 import type { CatalogVariant, ResolvedNeed } from "../referee/types.js";
 import { DEFAULT_OFFER_TTL_MINUTES, MAX_OFFER_TTL_MINUTES, storeRulesEnabled } from "./constants.js";
+import { HELD_UNDERCUT_RATIO } from "../lib/auction.js";
 
 /**
  * STORE SIDE. Shipped OFF (STORE_RULES_ENABLED). A store that has claimed its listing (it holds a
@@ -168,30 +169,50 @@ function eligible(rule: StoreRule, variant: CatalogVariant): boolean {
   return (rule.eligible.product_urls ?? []).some((url) => url.split("?")[0] === base);
 }
 
+/**
+ * What a rule competes against when the request has no held order: the offer leading the auction
+ * right now (its amount, in the same currency). The store goes under it by `step_percent`.
+ */
+export type Competition = { leader_cents: number; leader_store: string; currency: string; step_percent: number };
+
 export function applyStoreRule(
   rule: StoreRule,
   variant: CatalogVariant,
   need: ResolvedNeed,
   requestId: string,
   now = Date.now(),
+  competition: Competition | null = null,
 ): RuleDecision {
   const holding = need.holding;
-  if (!holding) return { offer: null, reason: "no held order to beat" };
+  if (!holding && !competition) return { offer: null, reason: "no held order to beat" };
   if (!eligible(rule, variant)) return { offer: null, reason: "product not in the store's rule" };
   const currency = variant.currency.toUpperCase();
-  if (holding.currency !== currency || rule.floor.currency.toUpperCase() !== currency) {
+  const targetCurrency = holding ? holding.currency : competition!.currency.toUpperCase();
+  if (targetCurrency !== currency || rule.floor.currency.toUpperCase() !== currency) {
     return { offer: null, reason: "different currency" };
   }
   const quantity = Math.max(1, need.quantity);
-  const heldUnit = Math.floor(holding.price_cents / quantity);
   const publicPrice = variant.price_cents;
-  if (publicPrice < heldUnit) return { offer: null, reason: "the public price already beats the held order" };
   const floorCents = Math.round(rule.floor.price * 100);
   const lowest = Math.max(floorCents, Math.ceil(publicPrice * (1 - rule.beat_by_up_to_percent / 100)));
-  // Beat the held price by about 1 percent, at least 1 cent.
-  const target = Math.min(heldUnit - 1, Math.floor(heldUnit * 0.99));
-  const price = Math.max(lowest, target);
-  if (price >= heldUnit) return { offer: null, reason: "cannot beat the held order within the store's rule" };
+  let price: number;
+  let toBeat: number;
+  if (holding) {
+    toBeat = Math.floor(holding.price_cents / quantity);
+    if (publicPrice < toBeat) return { offer: null, reason: "the public price already beats the held order" };
+    // Beat the held price by about 1 percent (HELD_UNDERCUT_RATIO), at least 1 cent.
+    const target = Math.min(toBeat - 1, Math.floor(toBeat * HELD_UNDERCUT_RATIO));
+    price = Math.max(lowest, target);
+    if (price >= toBeat) return { offer: null, reason: "cannot beat the held order within the store's rule" };
+  } else {
+    if (competition!.leader_store === variant.store_domain) return { offer: null, reason: "already leading" };
+    toBeat = competition!.leader_cents;
+    // Go under the leader by step_percent, rounded down to a whole currency unit minus a cent (x.99).
+    const raw = Math.floor(toBeat * (1 - competition!.step_percent / 100));
+    const tidy = Math.max(1, Math.floor(raw / 100) * 100 - 1);
+    price = Math.max(lowest, tidy);
+    if (price >= toBeat) return { offer: null, reason: "cannot beat the leader within the store's rule" };
+  }
 
   const ttl = rule.offer_ttl_minutes ?? DEFAULT_OFFER_TTL_MINUTES;
   const sentAt = new Date(now).toISOString();

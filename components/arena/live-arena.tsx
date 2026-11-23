@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { clockLabel, durationWords } from "../../lib/arena";
-import { feedToArena, formatPublicPrice, mergeFeedEvents, storeName } from "../../lib/arena-live";
+import { feedToArena, formatPublicPrice, mergeFeedEvents, priceNote, storeName } from "../../lib/arena-live";
 import type { PublicStream, PublicStreamEvent } from "../../lib/stream";
 import { Arena } from "./arena";
 import { ResultCard } from "./result-card";
@@ -19,7 +19,7 @@ import { ResultCard } from "./result-card";
  * /api/requests/{id}/result (token in a header) for the standing with amounts and the winner's link.
  */
 
-const FEED_TYPES = ["auction.opened", "store.joined", "lead.changed", "auction.closed"] as const;
+const FEED_TYPES = ["auction.opened", "store.joined", "price.confirmed", "store.withdrawn", "lead.changed", "auction.closed"] as const;
 const POLL_MS = 2000;
 const POSTER_POLL_MS = 4000;
 
@@ -34,12 +34,18 @@ type Standing = {
   available: boolean;
   product_url: string;
   band: string;
+  observed_at: string | null;
+  confirmed: boolean;
+  stale: boolean;
+  test: boolean;
 };
 
 type PosterAuction = {
   status: "open" | "closing" | "closed";
   standing: Standing[];
+  withdrawn?: Array<{ store_domain: string; reason: string }>;
   winner: (Standing & { checkout_url: string }) | null;
+  result: { kind: "won" | "last_seen" | "none"; label: string | null } | null;
 };
 
 type Outcome = "bought_at_winner" | "bought_elsewhere" | "did_not_buy";
@@ -223,7 +229,18 @@ export function LiveArena({ requestId, initial, shareUrl }: { requestId: string;
     : "The asker's own words, budget and any order they hold stay private.";
 
   return (
-    <div className="live-stage" data-perspective={shopper ? "shopper" : "public"} data-transport={transport}>
+    <div
+      className="live-stage"
+      data-perspective={shopper ? "shopper" : "public"}
+      data-transport={transport}
+      data-test-stores={data.testStores ? "true" : undefined}
+    >
+      {data.testStores ? (
+        <p className="test-stores-banner" role="note">
+          <strong>Test stores.</strong> Three made-up stores on <code>.example</code> addresses are bidding through the real engine so you
+          can watch it run. They are not real stores, their prices are invented, and nothing here counts anywhere.
+        </p>
+      ) : null}
       <Arena
         request={data.request}
         durationSec={data.durationSec}
@@ -250,6 +267,9 @@ export function LiveArena({ requestId, initial, shareUrl }: { requestId: string;
             demo={false}
             perspective={shopper ? "shopper" : "public"}
             shareUrl={shareUrl}
+            resultKind={result.kind === "last_seen" ? "last_seen" : "won"}
+            priceNote={result.winnerPriceNote}
+            testStores={data.testStores}
           />
         ) : null}
         {result && !result.winner ? (
@@ -326,7 +346,11 @@ function ShopperPanel({
       </header>
       {closed && winner ? (
         <div className="shopper-winner">
-          <p className="meta">Winning offer</p>
+          <p className="meta">
+            {poster?.result?.kind === "last_seen"
+              ? `Best last-seen price, not confirmed today (${priceNote({ confirmed: winner.confirmed, stale: winner.stale, observed_at: winner.observed_at })})`
+              : "Winning offer"}
+          </p>
           <p className="shopper-winner-price">
             {formatPublicPrice(winner.price, winner.currency) ?? winner.price}
             <span> at {storeName(winner.store_domain)}</span>
@@ -351,6 +375,10 @@ function ShopperPanel({
                 <small>
                   {entry.source === "public_price" ? "public price" : entry.source === "private_offer" ? "private offer to you" : "store bid"}
                   {entry.available ? "" : ", sold out"}
+                  {entry.test ? ", test store" : ""}
+                  {entry.source === "public_price"
+                    ? `, ${priceNote({ confirmed: entry.confirmed, stale: entry.stale, observed_at: entry.observed_at })}`
+                    : ""}
                 </small>
               </span>
               <span className="standing-price">{formatPublicPrice(entry.price, entry.currency) ?? entry.price}</span>

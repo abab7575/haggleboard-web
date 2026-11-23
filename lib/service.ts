@@ -28,7 +28,10 @@ import {
   posterAuction,
   windowFor,
   windowFromEvents,
+  withdrawEvents,
+  withdrawnStores,
   type IncomingOffer,
+  type WithdrawReason,
 } from "./auction.js";
 import { eventStatement, requestEvents, requestIsInternal, serviceContext, type EventContext, type NewEvent } from "./events.js";
 import { scrubPublicText as scrubText } from "./privacy.js";
@@ -258,7 +261,9 @@ function snapshotOffers(need: ResolvedNeed, variants: CatalogVariant[]): Incomin
       best.set(variant.store_domain, variant);
     }
   }
-  return [...best.values()].slice(0, 20).map((variant) => variantOffer(variant, "snapshot"));
+  return [...best.values()]
+    .slice(0, 20)
+    .map((variant) => ({ ...variantOffer(variant, "snapshot"), confirmed: false, observed_at: variant.observed_at ?? null }));
 }
 
 export function variantOffer(variant: CatalogVariant, via: string): IncomingOffer {
@@ -369,8 +374,31 @@ export async function recordOffers(
     : [];
   await store.batch([
     ...(opts.also ?? []),
-    ...made.map((event) => eventStatement({ ...event, internal, agent_class: opts.agent_class ?? "haggleboard" }, null)),
+    // Test-store events (TEST_STORES) are always internal, whatever the request was.
+    ...made.map((event) =>
+      eventStatement({ ...event, internal: event.internal === true || internal, agent_class: opts.agent_class ?? "haggleboard" }, null),
+    ),
   ]);
+}
+
+/**
+ * A live read found the item missing or sold out at a store: withdraw that store's unconfirmed
+ * snapshot offer (offer.withdrawn, plus lead.changed when it was leading), in one transaction.
+ */
+export async function withdrawOffer(
+  store: Store,
+  requestId: string,
+  storeDomain: string,
+  reason: WithdrawReason,
+  now = Date.now(),
+): Promise<boolean> {
+  if (store.kind === "unavailable") return false;
+  const events = await requestEvents(store, requestId);
+  const made = withdrawEvents(requestId, windowFromEvents(events), offersFromEvents(events), storeDomain, reason, now);
+  if (made.length === 0) return false;
+  const internal = await requestIsInternal(store, requestId);
+  await store.batch(made.map((event) => eventStatement({ ...event, internal: event.internal === true || internal, agent_class: "haggleboard" }, null)));
+  return true;
 }
 
 function needHint(need: ResolvedNeed, offers: number, persisted = true): string | null {
@@ -834,10 +862,14 @@ export async function boardRows(deps: Deps, limit = BOARD_LIMIT): Promise<BoardR
   const bids = await deps.store.listBids();
   const watched = await listWatchOffers(deps.store, rows.map((row) => row.id));
   const runs = new Map<string, WatchRun | null>();
-  for (const row of rows) runs.set(row.id, await getWatchRun(deps.store, row.id));
+  const withdrawnBy = new Map<string, Set<string>>();
+  for (const row of rows) {
+    runs.set(row.id, await getWatchRun(deps.store, row.id));
+    withdrawnBy.set(row.id, new Set(withdrawnStores(await requestEvents(deps.store, row.id)).map((item) => item.store_domain)));
+  }
   return rows.map((row) => {
     const need = normalizeStoredNeed(JSON.parse(row.need_json) as Partial<ResolvedNeed>);
-    const offers = offersFor(need, row.id, variants, bids, "public", watched.get(row.id) ?? [], []).ranked.slice(0, 10);
+    const offers = offersFor(need, row.id, variants, bids, "public", watched.get(row.id) ?? [], [], withdrawnBy.get(row.id)).ranked.slice(0, 10);
     const run = runs.get(row.id) ?? null;
     const prices: BoardPrice[] = offers.map((offer) => ({
       store_domain: offer.store_domain,
@@ -904,10 +936,14 @@ function offersFor(
   view: View,
   watched: CatalogVariant[] = [],
   privateOffers: PrivateOffer[] = [],
+  withdrawn: Set<string> = new Set(),
 ) {
   const matchNeed = view === "public" ? productOnly(need) : need;
-  const available = matchVariants(variants, matchNeed, true);
-  const includingSoldOut = matchVariants(variants, matchNeed, false);
+  // A live read during this request's auction found the item gone at these stores: their snapshot
+  // listing is no longer offered here (stale-price rule (a), lib/auction.ts).
+  const kept = withdrawn.size > 0 ? variants.filter((variant) => !withdrawn.has(variant.store_domain)) : variants;
+  const available = matchVariants(kept, matchNeed, true);
+  const includingSoldOut = matchVariants(kept, matchNeed, false);
   // Prices the watcher read from stores' own feeds for this request. Newer than the snapshot.
   const fresh = watched.filter((variant) => !isDemoSeller(variant) && productMatches(variant, matchNeed, true));
   const freshUrls = new Set(fresh.map((variant) => variant.product_url));
@@ -936,7 +972,8 @@ async function collectOffers(need: ResolvedNeed, requestId: string | null, deps:
   const bids = await deps.store.listBids();
   const watched = requestId ? ((await listWatchOffers(deps.store, [requestId])).get(requestId) ?? []) : [];
   const privateOffers = requestId && view === "poster" ? await listPrivateOffers(deps.store, requestId) : [];
-  const { ranked, omitted } = offersFor(need, requestId, variants, bids, view, watched, privateOffers);
+  const withdrawn = requestId ? new Set(withdrawnStores(await requestEvents(deps.store, requestId)).map((item) => item.store_domain)) : new Set<string>();
+  const { ranked, omitted } = offersFor(need, requestId, variants, bids, view, watched, privateOffers, withdrawn);
   const sliced = ranked.slice(0, limit);
   if (view === "public") {
     return { need: publicNeed(need) as PublicNeed | ResolvedNeed, offers: sliced.map(publicOffer), omitted_unavailable: omitted };

@@ -5,6 +5,7 @@ export function rowStatus(row: LiveRow): string {
   if (row.status === "open") return `open, ${Math.max(0, row.seconds_left)}s left · ${row.stores} store${row.stores === 1 ? "" : "s"} in`;
   if (row.status === "closing") return "clock just ran out";
   if (row.status === "no_auction") return `${row.stores} store${row.stores === 1 ? "" : "s"} answered`;
+  if (row.winner && row.result === "last_seen") return `best last-seen price at ${row.winner}, not confirmed today`;
   if (row.winner) return `won by ${row.winner}${row.band_label ? `, ${row.band_label}` : ""}`;
   return row.stores === 0 ? "closed, no store answered" : "closed, none in stock";
 }

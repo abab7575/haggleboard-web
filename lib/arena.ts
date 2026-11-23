@@ -26,6 +26,13 @@ export type PublicBidder = {
    * example "$119.95"). Never set for a private offer or a store bid.
    */
   publicPrice?: string;
+  /**
+   * Live auctions only: when that public price was seen, in plain words ("confirmed today",
+   * "last seen 18 Oct, not confirmed"). Every price on the board shows its date.
+   */
+  priceNote?: string;
+  /** A fictional test store (TEST_STORES=1 only). The lane says "test store". */
+  test?: boolean;
 };
 
 /** Seconds since the clock started. */
@@ -33,6 +40,8 @@ type At = { at: number };
 
 export type PublicArenaEvent =
   | (At & { kind: "join"; bidder: string })
+  /** Live auctions: a live read found the item gone at this store; its old price is out. */
+  | (At & { kind: "withdraw"; bidder: string })
   /**
    * `band` is a multiple of 5: "about 10% under the best public price". Live
    * auctions also carry `label`, the engine's own words for the band.
@@ -54,6 +63,8 @@ export type PublicArenaEvent =
       won_at: number;
       revealed_price?: string;
       label?: string;
+      /** Live auctions: "last_seen" when the best offer left was never confirmed today. */
+      result?: "won" | "last_seen";
     });
 
 const BAND_STEP = 5;
@@ -71,6 +82,7 @@ const id = z.string().min(1).max(64);
 const words = z.string().min(1).max(80);
 
 const joinSchema = z.object({ kind: z.literal("join"), at: seconds, bidder: id });
+const withdrawSchema = z.object({ kind: z.literal("withdraw"), at: seconds, bidder: id });
 const leadSchema = z.object({
   kind: z.literal("lead"),
   at: seconds,
@@ -89,6 +101,7 @@ const closeSchema = z.object({
   revealed_price: z.string().max(32).optional(),
   store_chose_to_reveal: z.boolean().optional(),
   label: words.optional(),
+  result: z.enum(["won", "last_seen"]).optional(),
 });
 
 /**
@@ -103,6 +116,10 @@ export function toPublicArenaEvent(raw: unknown): PublicArenaEvent | null {
     const parsed = joinSchema.safeParse(raw);
     return parsed.success ? { kind: "join", at: parsed.data.at, bidder: parsed.data.bidder } : null;
   }
+  if (kind === "withdraw") {
+    const parsed = withdrawSchema.safeParse(raw);
+    return parsed.success ? { kind: "withdraw", at: parsed.data.at, bidder: parsed.data.bidder } : null;
+  }
   if (kind === "lead") {
     const parsed = leadSchema.safeParse(raw);
     if (!parsed.success) return null;
@@ -114,7 +131,7 @@ export function toPublicArenaEvent(raw: unknown): PublicArenaEvent | null {
   if (kind === "close") {
     const parsed = closeSchema.safeParse(raw);
     if (!parsed.success) return null;
-    const { at, winner, saved_pct, won_at, revealed_price, store_chose_to_reveal, label } = parsed.data;
+    const { at, winner, saved_pct, won_at, revealed_price, store_chose_to_reveal, label, result } = parsed.data;
     const out: PublicArenaEvent = {
       kind: "close",
       at,
@@ -124,6 +141,7 @@ export function toPublicArenaEvent(raw: unknown): PublicArenaEvent | null {
     };
     if (store_chose_to_reveal === true && revealed_price) out.revealed_price = revealed_price;
     if (label) out.label = label;
+    if (result) out.result = result;
     return out;
   }
   return null;
@@ -145,6 +163,8 @@ export type BidderState = {
   leading: boolean;
   /** Number of times this store has taken the lead so far. */
   leads: number;
+  /** A live read found the item gone here: "no longer listed". */
+  withdrawn: boolean;
 };
 
 export type CommentaryLine = { at: number; text: string; tone: "info" | "lead" | "snipe" | "close" };
@@ -207,6 +227,9 @@ export function commentaryFor(
     const price = bidders.find((b) => b.id === event.bidder)?.publicPrice;
     return { at: event.at, text: `${name(event.bidder)} is in${price ? `, public price ${price}` : ""}.`, tone: "info" };
   }
+  if (event.kind === "withdraw") {
+    return { at: event.at, text: `${name(event.bidder)} no longer lists it. Its old price is out.`, tone: "info" };
+  }
   if (event.kind === "lead") {
     const left = durationSec - event.at;
     const who = name(event.bidder);
@@ -226,6 +249,13 @@ export function commentaryFor(
     return { at: event.at, text: `${who} takes the lead, ${band}.`, tone: "lead" };
   }
   if (event.winner == null) return { at: event.at, text: "Clock's out. No store had it in stock.", tone: "close" };
+  if (event.result === "last_seen") {
+    return {
+      at: event.at,
+      text: `Clock's out. Best last-seen price is at ${name(event.winner)}, not confirmed today.`,
+      tone: "close",
+    };
+  }
   return {
     at: event.at,
     text: `Clock's out. ${name(event.winner)} wins, ${savedText(event)}.`,
@@ -259,7 +289,7 @@ export function arenaStateAt(
   t: number,
 ): ArenaState {
   const states = new Map<string, BidderState>(
-    bidders.map((b) => [b.id, { bidder: b, joined: false, band: null, label: null, leading: false, leads: 0 }]),
+    bidders.map((b) => [b.id, { bidder: b, joined: false, band: null, label: null, leading: false, leads: 0, withdrawn: false }]),
   );
   let leaderId: string | null = null;
   let leaderBand: number | null = null;
@@ -274,6 +304,12 @@ export function arenaStateAt(
     if (event.kind === "join") {
       const s = states.get(event.bidder);
       if (s) s.joined = true;
+    } else if (event.kind === "withdraw") {
+      const s = states.get(event.bidder);
+      if (!s) continue;
+      s.withdrawn = true;
+      s.band = null;
+      s.label = null;
     } else if (event.kind === "lead") {
       const s = states.get(event.bidder);
       if (!s) continue;
@@ -283,6 +319,12 @@ export function arenaStateAt(
       if (leaderId !== event.bidder) {
         if (leaderId != null) leadChanges += 1;
         s.leads += 1;
+        // A store that is no longer leading does not keep the band from when it last led.
+        const previous = leaderId != null ? states.get(leaderId) : undefined;
+        if (previous) {
+          previous.band = null;
+          previous.label = null;
+        }
       }
       leaderId = event.bidder;
       leaderBand = event.band;

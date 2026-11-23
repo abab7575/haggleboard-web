@@ -52,7 +52,9 @@ export async function publicStats(store: Store, now = Date.now()) {
   const classes = new Map<string, number>();
   for (const event of posted) classes.set(event.agent_class, (classes.get(event.agent_class) ?? 0) + 1);
   const stores = new Set(offers.map((event) => event.store_domain).filter(Boolean));
-  const withWinner = closed.filter((event) => event.public.winner != null);
+  // A close whose best offer was never confirmed during the auction is not a win (lib/auction.ts).
+  const lastSeen = closed.filter((event) => event.public.winner != null && event.public.result === "last_seen");
+  const withWinner = closed.filter((event) => event.public.winner != null && event.public.result !== "last_seen");
   const beat = withWinner.filter((event) => event.public.beat_public === true).length;
   return {
     as_of: asOf,
@@ -65,6 +67,8 @@ export async function publicStats(store: Store, now = Date.now()) {
     },
     stores_answering: metric(stores.size, offers.length, asOf),
     auctions_closed: metric(closed.length, closed.length, asOf),
+    /** Closes where no offer was confirmed live: "best last-seen price, not confirmed today". Not wins. */
+    auctions_last_seen_only: metric(lastSeen.length, closed.length, asOf),
     winner_beat_best_public_price: {
       ...metric(withWinner.length ? beat / withWinner.length : null, withWinner.length, asOf),
       beat,
@@ -81,7 +85,7 @@ export async function agentScorecard(store: Store, handle: string, now = Date.no
   const ids = new Set(posted.map((event) => event.request_id));
   const closed = (await eventsOfType(store, "auction.closed")).filter((event) => ids.has(event.request_id));
   const outcomes = latestPerRequest((await eventsOfType(store, "outcome.reported")).filter((event) => ids.has(event.request_id)));
-  const wins = closed.filter((event) => event.public.beat_public === true);
+  const wins = closed.filter((event) => event.public.beat_public === true && event.public.result !== "last_seen");
   const bands = new Map<string, number>();
   for (const event of closed) {
     const band = (event.public.band as Band | null) ?? "no_offer";

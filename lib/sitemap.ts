@@ -29,8 +29,16 @@ export async function sitemapEntries(
         new Date(now - 30 * 86_400_000).toISOString(),
       ])).map((row) => String(row.request_id)),
     );
+    // Requests where a fictional test store took part (TEST_STORES=1) are never listed.
+    const tested = new Set(
+      (await store.select("SELECT DISTINCT request_id FROM events WHERE request_id IS NOT NULL AND public LIKE ?", ['%"test":true%'])).map(
+        (row) => String(row.request_id),
+      ),
+    );
     for (const row of await store.listRequests(SITEMAP_REQUESTS)) {
-      if (outside.has(row.id)) entries.push({ url: `${base}/r/${row.id}`, lastModified: row.created_at, changeFrequency: "hourly" });
+      if (outside.has(row.id) && !tested.has(row.id)) {
+        entries.push({ url: `${base}/r/${row.id}`, lastModified: row.created_at, changeFrequency: "hourly" });
+      }
     }
   }
   for (const domain of await storesWithPages(store, variants, now, removed)) {

@@ -34,6 +34,9 @@ const BRANDS: Brand[] = [
   { name: "Tracksmith", keys: ["tracksmith"], phrases: ["tracksmith"] },
   { name: "Scarpa", keys: ["scarpa"], phrases: ["scarpa"] },
   { name: "Merrell", keys: ["merrell"], phrases: ["merrell"] },
+  { name: "OOFOS", keys: ["oofos"], phrases: ["oofos"] },
+  { name: "Birkenstock", keys: ["birkenstock"], phrases: ["birkenstock"] },
+  { name: "Allbirds", keys: ["allbirds"], phrases: ["allbirds"] },
 ];
 
 function squash(value: string): string {

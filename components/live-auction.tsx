@@ -90,9 +90,16 @@ function describe(event: PublicStreamEvent): string {
       return event.public_price
         ? `${event.store} joined with a public price of ${event.public_price} ${event.currency ?? ""}.`
         : `${event.store} joined with a private offer.`;
+    case "price.confirmed":
+      return `${event.store} confirmed its public price live: ${event.public_price} ${event.currency ?? ""}.`;
+    case "store.withdrawn":
+      return `${event.store}: no longer listed. Its old snapshot price is out.`;
     case "lead.changed":
       return `${event.store} took the lead (${event.band_label}).`;
     case "auction.closed":
+      if (event.winner && event.result === "last_seen") {
+        return `Closed. ${event.result_label}: ${event.winner.store}. ${event.bidders} stores, ${event.lead_changes} lead changes.`;
+      }
       return event.winner
         ? `Closed. ${event.winner.store} won (${event.band_label}). ${event.bidders} stores, ${event.lead_changes} lead changes.`
         : `Closed with no offer in stock. ${event.bidders} stores answered.`;

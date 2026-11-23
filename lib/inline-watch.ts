@@ -1,7 +1,9 @@
 import { after } from "next/server";
 import { runWatch } from "../watcher/run.js";
 import { watcherInline } from "../watcher/constants.js";
-import { eventContext, type Channel } from "./events.js";
+import { scheduleTestStores, testStoresEnabled } from "../watcher/test-stores.js";
+import { windowFromEvents } from "./auction.js";
+import { eventContext, requestEvents, type Channel } from "./events.js";
 import { indexNowEnabled, submitIndexNow } from "./indexnow.js";
 import { requestOrigin } from "./origin.js";
 import type { Deps } from "./service.js";
@@ -22,12 +24,20 @@ export function withRequestHooks(
   const context = eventContext(req, channel, env);
   const watch = watcherInline(env);
   const announce = indexNowEnabled(env) && !context.internal && origin === "outside";
-  if (!watch && !announce) return { ...deps, origin, context };
+  const testStores = testStoresEnabled(env);
+  if (!watch && !announce && !testStores) return { ...deps, origin, context };
   return {
     ...deps,
     origin,
     context,
     afterPost: (request) => {
+      if (testStores) {
+        // TEST_STORES=1 (local only): made-up .example stores answer through the real rules engine.
+        void (async () => {
+          const window = windowFromEvents(await requestEvents(deps.store, request.id));
+          if (window) scheduleTestStores(deps.store, { id: request.id, need: request.need }, window);
+        })().catch(() => console.error("test stores failed to start"));
+      }
       after(async () => {
         if (announce) {
           try {

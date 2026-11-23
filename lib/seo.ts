@@ -1,5 +1,6 @@
 import { centsToDecimal, formatMoney } from "../referee/money.js";
 import type { PublicNeed, PublicOffer } from "../referee/types.js";
+import { STALE_AFTER_MS } from "./auction.js";
 import { publicOffer } from "./privacy.js";
 
 /**
@@ -20,28 +21,59 @@ function checkedLabel(iso: string): string {
   return `${iso.slice(0, 10)} ${iso.slice(11, 16)} UTC`;
 }
 
-export function requestSummary(need: PublicNeed, rawOffers: PublicOffer[], createdAt: string | null) {
+/** A public price is stale when it was observed more than STALE_AFTER_DAYS before `reference`. */
+export function offerIsStale(offer: Pick<PublicOffer, "observed_at">, reference: string | number): boolean {
+  const ref = typeof reference === "number" ? reference : Date.parse(reference);
+  const seen = Date.parse(offer.observed_at);
+  if (!Number.isFinite(seen) || !Number.isFinite(ref)) return true;
+  return ref - seen > STALE_AFTER_MS;
+}
+
+/**
+ * The page's title and summary follow the auction's stale-price rule: the best price is the best
+ * price observed within STALE_AFTER_DAYS of the request. When only older prices exist, the summary
+ * says "best last-seen price ... seen <date>, not confirmed" instead of "best public price".
+ * Offers from stores a live read withdrew are already left out by the caller.
+ */
+export function requestSummary(need: PublicNeed, rawOffers: PublicOffer[], createdAt: string | null, now = Date.now()) {
   const offers = rawOffers.map(publicOffer);
+  const reference = createdAt ?? now;
   const stores = new Set(offers.map((offer) => offer.store_domain)).size;
   const currency = mainCurrency(offers.filter((offer) => offer.available));
   const inCurrency = offers.filter((offer) => offer.available && offer.currency === currency);
-  const best = [...inCurrency].sort((a, b) => a.price_cents - b.price_cents)[0] ?? null;
+  const fresh = inCurrency.filter((offer) => !offerIsStale(offer, reference));
+  const pool = fresh.length > 0 ? fresh : inCurrency;
+  const best = [...pool].sort((a, b) => a.price_cents - b.price_cents)[0] ?? null;
+  const bestStale = best != null && fresh.length === 0;
   const checked = offers.map((offer) => offer.observed_at).sort().at(-1) ?? createdAt;
   const parts = [`${stores} store${stores === 1 ? "" : "s"} answered`];
-  if (best) parts.push(`best public price ${formatMoney(best.price_cents, best.currency)}`);
-  if (checked) parts.push(`checked ${checkedLabel(checked)}`);
+  if (best && !bestStale) parts.push(`best public price ${formatMoney(best.price_cents, best.currency)}`);
+  if (best && bestStale) {
+    parts.push(`best last-seen price ${formatMoney(best.price_cents, best.currency)}, seen ${best.observed_at.slice(0, 10)}, not confirmed`);
+  }
+  if (checked && !bestStale) parts.push(`checked ${checkedLabel(checked)}`);
   return {
     title: `${need.label}: ${parts.join(", ")}`,
     description: `${need.label} on HaggleBoard: ${parts.join(", ")}. ${PRIVATE_OFFER_HOOK}`,
     stores,
     best,
+    best_stale: bestStale,
     checked,
   };
 }
 
-/** schema.org Product with an AggregateOffer from public prices only (no offers key when none). */
-export function productJsonLd(need: PublicNeed, rawOffers: PublicOffer[], pageUrl: string): Record<string, unknown> {
-  const offers = rawOffers.map(publicOffer);
+/**
+ * schema.org Product with an AggregateOffer from public prices only (no offers key when none).
+ * Stale prices (observed more than STALE_AFTER_DAYS before the request) are left out: machine
+ * readers cannot see the "not confirmed" label, so they never get an old price as a current offer.
+ */
+export function productJsonLd(
+  need: PublicNeed,
+  rawOffers: PublicOffer[],
+  pageUrl: string,
+  reference: string | number = Date.now(),
+): Record<string, unknown> {
+  const offers = rawOffers.map(publicOffer).filter((offer) => !offerIsStale(offer, reference));
   const currency = mainCurrency(offers);
   const priced = offers.filter((offer) => offer.currency === currency);
   const cents = priced.map((offer) => offer.price_cents);

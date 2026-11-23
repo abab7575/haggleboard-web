@@ -19,6 +19,7 @@ export type EventType =
   | "store.matched"
   | "store.read"
   | "offer.made"
+  | "offer.withdrawn"
   | "lead.changed"
   | "auction.closed"
   | "outcome.reported"

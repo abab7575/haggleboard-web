@@ -1,3 +1,4 @@
+import type { AgentRoute } from "../feeds/agent-catalog.js";
 import { USER_AGENT } from "../feeds/constants.js";
 import {
   ARC_ASK_URL,
@@ -35,6 +36,11 @@ export type ArcPrecheck = {
   canonical_host: string | null;
   /** Currency of the price ARC saw on its last check, if any. */
   currency: string | null;
+  /**
+   * The catalog search the store publishes for agents, when ARC's last check got an answer from it:
+   * a UCP MCP endpoint with search_catalog (preferred), else a storefront MCP with search_shop_catalog.
+   */
+  agent_route: AgentRoute | null;
 };
 
 type FetchLike = (url: string, init: RequestInit) => Promise<Response>;
@@ -149,7 +155,15 @@ type RawPrecheck = {
   reachable_checkout?: boolean | null;
   best_route?: { route?: string } | null;
   rails?: Array<{ name?: string; status?: string }> | null;
-  routes?: Array<{ route?: string; status?: string; endpoint?: string; product_url_tested?: string; profile_url?: string; capabilities?: string[] }> | null;
+  routes?: Array<{
+    route?: string;
+    status?: string;
+    endpoint?: string;
+    catalog_tool?: string;
+    product_url_tested?: string;
+    profile_url?: string;
+    capabilities?: string[];
+  }> | null;
   price_check?: { currency?: string } | null;
 };
 
@@ -189,7 +203,35 @@ export function parsePrecheckBulk(raw: unknown): ArcPrecheck[] {
         shopify: shopPay || storefront || shopifyUcp,
         canonical_host: canonical,
         currency: item.price_check?.currency ? item.price_check.currency.toUpperCase() : null,
+        agent_route: agentRouteOf(host, routes),
       },
     ];
   });
+}
+
+/**
+ * The agent catalog route ARC saw working, on the store's own host. UCP MCP with search_catalog
+ * first. A storefront MCP is used only when its tool is search_shop_catalog (Shopify moved the
+ * catalog off /api/mcp to /api/ucp/mcp; ARC's older checks can still list search_catalog there, and
+ * a live tools/list on 22 Nov 2026 showed only the policies tool at /api/mcp).
+ */
+export function agentRouteOf(host: string, routes: NonNullable<RawPrecheck["routes"]>): AgentRoute | null {
+  const onHost = (endpoint: string | undefined): string | null => {
+    if (!endpoint) return null;
+    try {
+      const url = new URL(endpoint);
+      return url.protocol === "https:" && (url.hostname === host || url.hostname.endsWith(`.${host}`)) ? url.toString() : null;
+    } catch {
+      return null;
+    }
+  };
+  const ucp = routes.find((route) => route.route === "ucp_mcp" && route.status === "works" && route.catalog_tool === "search_catalog");
+  const ucpEndpoint = onHost(ucp?.endpoint);
+  if (ucpEndpoint) return { route: "ucp_mcp", endpoint: ucpEndpoint, tool: "search_catalog" };
+  const storefront = routes.find(
+    (route) => route.route === "storefront_mcp" && route.status === "works" && route.catalog_tool === "search_shop_catalog",
+  );
+  const storefrontEndpoint = onHost(storefront?.endpoint);
+  if (storefrontEndpoint) return { route: "storefront_mcp", endpoint: storefrontEndpoint, tool: "search_shop_catalog" };
+  return null;
 }
