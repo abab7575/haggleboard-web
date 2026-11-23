@@ -46,7 +46,7 @@ export type PublicArenaEvent =
    * `band` is a multiple of 5: "about 10% under the best public price". Live
    * auctions also carry `label`, the engine's own words for the band.
    */
-  | (At & { kind: "lead"; bidder: string; band: number; label?: string })
+  | (At & { kind: "lead"; bidder: string; band: number; label?: string; /** Live: the leading offer is a private offer, not the store's public price. */ private?: boolean })
   /**
    * Close of the clock. `saved_pct` is the winner's exact percent under the best
    * public price, which is public at the close in the demo. `revealed_price` is
@@ -91,6 +91,7 @@ const leadSchema = z.object({
   band: z.number().optional(),
   pct_under: z.number().optional(),
   label: words.optional(),
+  private: z.boolean().optional(),
 });
 const closeSchema = z.object({
   kind: z.literal("close"),
@@ -126,6 +127,7 @@ export function toPublicArenaEvent(raw: unknown): PublicArenaEvent | null {
     const source = parsed.data.pct_under ?? parsed.data.band ?? 0;
     const out: PublicArenaEvent = { kind: "lead", at: parsed.data.at, bidder: parsed.data.bidder, band: toBand(source) };
     if (parsed.data.label) out.label = parsed.data.label;
+    if (parsed.data.private === true) out.private = true;
     return out;
   }
   if (kind === "close") {
@@ -165,6 +167,8 @@ export type BidderState = {
   leads: number;
   /** A live read found the item gone here: "no longer listed". */
   withdrawn: boolean;
+  /** Live: this store's standing offer is a private offer (its public price is only its list price). */
+  privateOffer: boolean;
 };
 
 export type CommentaryLine = { at: number; text: string; tone: "info" | "lead" | "snipe" | "close" };
@@ -233,20 +237,28 @@ export function commentaryFor(
   if (event.kind === "lead") {
     const left = durationSec - event.at;
     const who = name(event.bidder);
-    const band = bandText(event.band, event.label);
-    if (leaderBefore == null) return { at: event.at, text: `${who} opens, ${band}.`, tone: "lead" };
+    const rawBand = bandText(event.band, event.label);
+    // A private offer is said as such, so nobody reads the store's public list price as what leads.
+    const priv = event.private === true;
+    const band = priv ? (rawBand === "private offer" ? "" : `, ${rawBand}`) : `, ${rawBand}`;
+    if (leaderBefore == null) {
+      return { at: event.at, text: priv ? `${who} opens with a private offer${band}.` : `${who} opens${band}.`, tone: "lead" };
+    }
     if (left <= FINAL_SECONDS) {
       const n = Math.max(1, Math.round(left));
+      const verb = priv ? "goes private and grabs the lead" : "grabs the lead";
       const text =
         n <= 3
-          ? `${who} snatches it with ${n} second${n === 1 ? "" : "s"} left!`
+          ? `${who} ${priv ? "goes private and snatches it" : "snatches it"} with ${n} second${n === 1 ? "" : "s"} left!`
           : Math.round(event.at) % 2 === 0
-            ? `${who} hits back. ${n} seconds left!`
-            : `${who} grabs the lead. ${n} seconds to go!`;
+            ? `${who} hits back${priv ? " with a private offer" : ""}. ${n} seconds left!`
+            : `${who} ${verb}. ${n} seconds to go!`;
       return { at: event.at, text, tone: "snipe" };
     }
-    if (leaderBefore === event.bidder) return { at: event.at, text: `${who} goes lower, ${band}.`, tone: "lead" };
-    return { at: event.at, text: `${who} takes the lead, ${band}.`, tone: "lead" };
+    if (leaderBefore === event.bidder) {
+      return { at: event.at, text: `${who} goes lower${priv ? " with a private offer" : ""}${band}.`, tone: "lead" };
+    }
+    return { at: event.at, text: priv ? `${who} goes private and takes the lead${band}.` : `${who} takes the lead${band}.`, tone: "lead" };
   }
   if (event.winner == null) return { at: event.at, text: "Clock's out. No store had it in stock.", tone: "close" };
   if (event.result === "last_seen") {
@@ -289,7 +301,7 @@ export function arenaStateAt(
   t: number,
 ): ArenaState {
   const states = new Map<string, BidderState>(
-    bidders.map((b) => [b.id, { bidder: b, joined: false, band: null, label: null, leading: false, leads: 0, withdrawn: false }]),
+    bidders.map((b) => [b.id, { bidder: b, joined: false, band: null, label: null, leading: false, leads: 0, withdrawn: false, privateOffer: false }]),
   );
   let leaderId: string | null = null;
   let leaderBand: number | null = null;
@@ -315,6 +327,7 @@ export function arenaStateAt(
       if (!s) continue;
       s.joined = true;
       s.band = event.band;
+      if (event.private === true) s.privateOffer = true;
       s.label = event.label ?? null;
       if (leaderId !== event.bidder) {
         if (leaderId != null) leadChanges += 1;

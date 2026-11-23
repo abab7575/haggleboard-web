@@ -93,6 +93,8 @@ export type LiveResult = {
   wonAtSec: number;
   bidders: number;
   leadChanges: number;
+  /** How the winner won: its public price, a private offer, or a keyed store bid. */
+  winnerSource: "public_price" | "private_offer" | "store_bid" | null;
   /** won: confirmed live. last_seen: the best offer left was never confirmed today. */
   kind: "won" | "last_seen" | "none";
   /** "Best last-seen price, not confirmed today" for last_seen. */
@@ -187,7 +189,14 @@ export function feedToArena(feed: FeedLike): LiveArenaData {
       const bidder = bidderFor(event.store);
       const when = at(event.at);
       lastLeadAt.set(bidder, when);
-      raw.push({ kind: "lead", at: when, bidder, band: BAND_POSITION[event.band] ?? 0, label: BAND_SHORT[event.band] });
+      raw.push({
+        kind: "lead",
+        at: when,
+        bidder,
+        band: BAND_POSITION[event.band] ?? 0,
+        label: BAND_SHORT[event.band],
+        ...(event.source !== "public_price" ? { private: true } : {}),
+      });
     } else if (event.type === "auction.closed") {
       const winner = event.winner ? bidderFor(event.winner.store) : null;
       const wonAtSec = winner ? (lastLeadAt.get(winner) ?? joinedAt.get(winner) ?? 0) : 0;
@@ -200,6 +209,7 @@ export function feedToArena(feed: FeedLike): LiveArenaData {
         bidders: event.bidders,
         leadChanges: event.lead_changes,
         kind: event.result,
+        winnerSource: event.winner?.source ?? null,
         kindLabel: event.result_label,
         winnerPriceNote:
           event.winner && event.winner.source === "public_price"

@@ -2,6 +2,7 @@ import { centsToDecimal, formatMoney } from "../referee/money.js";
 import type { PublicNeed, PublicOffer } from "../referee/types.js";
 import { STALE_AFTER_MS } from "./auction.js";
 import { publicOffer } from "./privacy.js";
+import { standingWords } from "./stream.js";
 
 /**
  * What a request page says about itself to search engines and agents. Built ONLY from the public
@@ -35,7 +36,14 @@ export function offerIsStale(offer: Pick<PublicOffer, "observed_at">, reference:
  * says "best last-seen price ... seen <date>, not confirmed" instead of "best public price".
  * Offers from stores a live read withdrew are already left out by the caller.
  */
-export function requestSummary(need: PublicNeed, rawOffers: PublicOffer[], createdAt: string | null, now = Date.now()) {
+export function requestSummary(
+  need: PublicNeed,
+  rawOffers: PublicOffer[],
+  createdAt: string | null,
+  now = Date.now(),
+  /** The auction's standing (lib/stream.ts standingCounts). When given, the count comes from it. */
+  standing?: { stores: number; real: number; test: number },
+) {
   const offers = rawOffers.map(publicOffer);
   const reference = createdAt ?? now;
   const stores = new Set(offers.map((offer) => offer.store_domain)).size;
@@ -46,7 +54,7 @@ export function requestSummary(need: PublicNeed, rawOffers: PublicOffer[], creat
   const best = [...pool].sort((a, b) => a.price_cents - b.price_cents)[0] ?? null;
   const bestStale = best != null && fresh.length === 0;
   const checked = offers.map((offer) => offer.observed_at).sort().at(-1) ?? createdAt;
-  const parts = [`${stores} store${stores === 1 ? "" : "s"} answered`];
+  const parts = [standing ? standingWords(standing) : `${stores} store${stores === 1 ? "" : "s"} answered`];
   if (best && !bestStale) parts.push(`best public price ${formatMoney(best.price_cents, best.currency)}`);
   if (best && bestStale) {
     parts.push(`best last-seen price ${formatMoney(best.price_cents, best.currency)}, seen ${best.observed_at.slice(0, 10)}, not confirmed`);

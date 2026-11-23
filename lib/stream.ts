@@ -184,6 +184,25 @@ export function toPublicEvents(events: EventRow[]): PublicStreamEvent[] {
   return out;
 }
 
+/**
+ * Who is in the standing, from the public feed: every store that joined and was not withdrawn,
+ * split into real and test stores. Pages, titles and the board count from this, so they agree.
+ */
+export function standingCounts(events: PublicStreamEvent[]): { stores: number; real: number; test: number } {
+  const joined = new Map<string, boolean>();
+  for (const event of events) if (event.type === "store.joined") joined.set(event.store, event.test);
+  for (const event of events) if (event.type === "store.withdrawn") joined.delete(event.store);
+  const test = [...joined.values()].filter(Boolean).length;
+  return { stores: joined.size, real: joined.size - test, test };
+}
+
+/** The words for that count: "3 stores answered", "Test stores only", "Test stores and 1 real store". */
+export function standingWords(counts: { stores: number; real: number; test: number }): string {
+  if (counts.test > 0 && counts.real === 0) return "Test stores only";
+  if (counts.test > 0) return `Test stores and ${counts.real} real store${counts.real === 1 ? "" : "s"}`;
+  return `${counts.stores} store${counts.stores === 1 ? "" : "s"} answered`;
+}
+
 export function hasTestStores(events: EventRow[]): boolean {
   return events.some((event) => event.public.test === true);
 }

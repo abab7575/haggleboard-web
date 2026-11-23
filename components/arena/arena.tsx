@@ -283,17 +283,30 @@ export function Arena({
               </span>
               <span className="lane-band">
                 {b.bidder.test ? <span className="lane-test">test store</span> : null}
-                {b.joined && b.bidder.publicPrice ? (
+                {b.joined && b.privateOffer && !b.withdrawn ? (
+                  // A store standing on a private offer: the offer is the headline, its list price is secondary.
+                  <>
+                    <span className="lane-private">
+                      Private offer
+                      {b.leading && b.band != null && b.label && b.label !== "private offer" ? <small> · {b.label}</small> : null}
+                    </span>
+                    {b.bidder.publicPrice ? <span className="lane-list">list {b.bidder.publicPrice}</span> : null}
+                  </>
+                ) : b.joined && b.bidder.publicPrice ? (
                   <span className={`lane-price${b.withdrawn ? " is-withdrawn" : ""}`} title="The store's public list price">
                     {b.bidder.publicPrice}
                     <small> public price</small>
                   </span>
                 ) : null}
                 {b.joined && b.withdrawn ? <span className="lane-note lane-note--out">no longer listed</span> : null}
-                {b.joined && !b.withdrawn && b.bidder.publicPrice && b.bidder.priceNote ? (
+                {b.joined && !b.withdrawn && !b.privateOffer && b.bidder.publicPrice && b.bidder.priceNote ? (
                   <span className={`lane-note${/not confirmed/.test(b.bidder.priceNote) ? " lane-note--stale" : ""}`}>{b.bidder.priceNote}</span>
                 ) : null}
-                {b.joined && !b.withdrawn
+                {b.joined && !b.withdrawn && b.privateOffer
+                  ? b.leading
+                    ? null
+                    : <span className="lane-note">outbid</span>
+                  : b.joined && !b.withdrawn
                   ? b.band == null || (b.bidder.publicPrice && !b.leading)
                     ? b.bidder.publicPrice
                       ? null

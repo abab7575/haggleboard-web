@@ -54,6 +54,8 @@ Hit rate on 10 fixed products (all internal posts; `scripts/hit-rate.ts`):
 | After, first pass (new watcher, empty learned index) | 2 of 10 | 47 | 2 (4.3%) |
 | After, second pass (learned index from the first pass, cache only) | 2 of 10 | 16 | 2 (12.5%) |
 
+A breach to know about: the rule for tonight was at most 3 requests to any one store's agent endpoint. The first "after" pass and the local demo fights went over it for a few footwear stores from ARC (nisolo.com and rothys.com about 9 each, kappa.com about 9, k-way.com about 7, jomercer.com.au 4, heschung.com 2, oofos.com 2). None answered 403, 429 or a challenge. The new caps (2 untried category stores per request, stores with 3 misses dropped) stop the repeats, but a fresh database starts without that memory.
+
 Honest reading: one more product found (the brand store's own catalog search found its shoe; that answer was replayed from the one live search I had already made, to stay within the per-store limit). Most running brands are still not findable: their own sites publish no working agent route, and the seed shops' first feed page is a lottery. The first pass wasted many asks on footwear stores from ARC that do not carry running brands; the learned index and the new cap (2 untried category stores per request, stores with 3 misses and no hit are dropped) cut that from 47 asks to 16 on the second pass.
 
 ## Switched off, and what each needs
@@ -71,4 +73,3 @@ Honest reading: one more product found (the brand store's own catalog search fou
 3. Should HaggleBoard publish its own UCP agent profile at `haggleboard.com/.well-known/ucp` before launch, instead of sending Shopify's example profile?
 4. Do you want the board to hide test posts entirely in production, or keep the "test post" tag?
 5. Watcher in production: inline on Vercel, or a separate worker?
-6. `npm test` ends with the secret scan, which flags your first name in `docs/DATA.md` and `docs/MARKETING.md` (both came in with the integration merge, before this branch). All 174 unit tests pass; the scan step still exits 1. Reword those docs, or relax the name rule for `docs/`?

@@ -15,7 +15,7 @@ import { requestEvents, type EventContext } from "../lib/events";
 import { postRequest, recordOffers, variantOffer, withdrawOffer, type Deps } from "../lib/service";
 import { sitemapEntries } from "../lib/sitemap";
 import { publicStats } from "../lib/stats";
-import { publicStream } from "../lib/stream";
+import { publicStream, standingCounts, standingWords } from "../lib/stream";
 import type { CatalogVariant } from "../referee/types";
 import { agentRouteOf, clearArcCache, createArcClient } from "../watcher/arc";
 import { chooseCandidates } from "../watcher/candidates";
@@ -479,6 +479,44 @@ describe("4. test arena (TEST_STORES=1, local only)", () => {
     expect(html).toContain("Test stores");
     expect(html).toContain("test store");
     await store.close();
+  });
+});
+
+describe("the public view tells the right story", () => {
+  it("a lane standing on a private offer leads with 'Private offer', and its public price is only a small list price", () => {
+    const bidders: PublicBidder[] = [
+      { id: "t", name: "late-store.example", tone: "clay", publicPrice: "$124.99", priceNote: "confirmed today" },
+      { id: "q", name: "quick-store.example", tone: "plum", publicPrice: "$119.99", priceNote: "confirmed today" },
+    ];
+    const events: PublicArenaEvent[] = [
+      { kind: "join", at: 1, bidder: "q" },
+      { kind: "lead", at: 1, bidder: "q", band: 0, label: "at the best public price" },
+      { kind: "join", at: 20, bidder: "t" },
+      { kind: "lead", at: 25, bidder: "t", band: 15, label: "10 to 20% under", private: true },
+    ];
+    const html = renderToStaticMarkup(
+      h(Arena, { request: "x", durationSec: 30, bidders, events, demo: false, variant: "full", opensAt: new Date(Date.now() - 60_000).toISOString() }),
+    );
+    const lane = html.slice(html.indexOf("late-store.example"), html.indexOf("quick-store.example", html.indexOf("late-store.example")));
+    expect(lane).toMatch(/class="lane-private">Private offer/);
+    expect(lane).toContain("10 to 20% under");
+    expect(lane).toContain('class="lane-list">list $124.99');
+    // The public price is not the headline of a private-offer lane.
+    expect(lane).not.toMatch(/class="lane-price[^>]*>\$124\.99/);
+    // The losing public-price store keeps its price as the headline.
+    expect(html).toMatch(/class="lane-price"[^>]*>\$119\.99/);
+    expect(html).toContain("goes private and grabs the lead");
+  });
+
+  it("counts every store in the standing, and says 'Test stores only' for a test-store auction", () => {
+    const joined = (store: string, test: boolean, seq: number) =>
+      ({ seq, type: "store.joined", at: "2026-11-23T00:00:00.000Z", store, source: "public_price", public_price: "1.00", currency: "USD", observed_at: null, confirmed: true, stale: false, test }) as const;
+    expect(standingWords(standingCounts([joined("a.example.com", false, 1), joined("b.example.com", false, 2)]))).toBe("2 stores answered");
+    expect(standingWords(standingCounts([joined("t1.example", true, 1), joined("t2.example", true, 2)]))).toBe("Test stores only");
+    expect(standingWords(standingCounts([joined("t1.example", true, 1), joined("a.example.com", false, 2)]))).toBe("Test stores and 1 real store");
+    expect(
+      standingCounts([joined("a.example.com", false, 1), { seq: 2, type: "store.withdrawn", at: "x", store: "a.example.com", reason: "not_found", label: "no longer listed" }]).stores,
+    ).toBe(0);
   });
 });
 

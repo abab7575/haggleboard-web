@@ -106,7 +106,7 @@ describe("feed to arena adapter", () => {
       { id: "example-road.com", name: "example-road.com", tone: "plum" },
     ]);
     const lead = arena.events.find((e) => e.kind === "lead" && e.bidder === "example-road.com");
-    expect(lead).toEqual({ kind: "lead", at: 40, bidder: "example-road.com", band: BAND_POSITION.under_5_10, label: "5 to 10% under" });
+    expect(lead).toEqual({ kind: "lead", at: 40, bidder: "example-road.com", band: BAND_POSITION.under_5_10, label: "5 to 10% under", private: true });
   });
 
   it("closes with the true band label, the winner and when the winning offer came in", () => {
@@ -120,6 +120,7 @@ describe("feed to arena adapter", () => {
       bidders: 2,
       leadChanges: 2,
       kind: "won",
+      winnerSource: "private_offer",
       kindLabel: null,
       winnerPriceNote: null,
     });

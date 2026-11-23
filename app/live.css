@@ -48,13 +48,20 @@
 .result-card-pct--band strong { font-size: clamp(2rem, 4vw, 2.8rem) !important; line-height: 1 !important; }
 .result-card-pct--band span { max-width: 30ch !important; font-size: var(--t-sm) !important; color: var(--muted); padding-bottom: 0 !important; }
 .result-card--band .result-card-stamp { top: 3.4rem; }
-.live-stage .arena--full { --lane-cols: 14.5rem minmax(0, 1fr) 9rem 3.6rem; }
+.live-stage .arena--full { --lane-cols: 15rem minmax(0, 1fr) 11.5rem 3.6rem; }
 /* The arena and its key share the left column, so the column does not end in dead space under a tall poster panel. */
 .live-main { display: grid; gap: 1.1rem; align-content: start; min-width: 0; }
 @media (min-width: 1021px) { .live-main { position: sticky; top: 1rem; } }
 
 /* ---------- price dates, withdrawn stores, the arena key ---------- */
 
+/* A store standing on a private offer: the offer is the headline, the list price is small and secondary. */
+.lane-private { color: var(--paper); font-weight: 700; white-space: nowrap; }
+.lane-private small { font-weight: 600; font-size: 0.72rem; color: inherit; white-space: normal; }
+.lane.is-leading .lane-private { color: var(--pine-bright); }
+.lane-list { color: var(--night-muted); font-size: 0.7rem; font-weight: 600; font-variant-numeric: tabular-nums; white-space: nowrap; }
+/* Store names are long domains: let them wrap onto two lines before anything is cut. */
+.live-stage .lane-label { white-space: normal; overflow: visible; text-overflow: clip; overflow-wrap: anywhere; line-height: 1.15; }
 .lane-note { color: var(--night-muted); font-size: 0.7rem; font-weight: 600; white-space: nowrap; }
 .lane-note--stale { color: #f0c27a; }
 .lane-note--out { color: #f0a08f; }

@@ -633,7 +633,17 @@ export type StandingEntry = {
   /** Unconfirmed and older than STALE_AFTER_DAYS: shown, but it cannot win while a confirmed offer exists. */
   stale: boolean;
   test: boolean;
+  /** A private offer or bid: the same store's public list price, for comparison. Null for a public price. */
+  list_price: string | null;
 };
+
+/** The store's latest public price in this auction, as a decimal string, or null. */
+function listPriceOf(offer: AuctionOffer, offers: AuctionOffer[]): string | null {
+  const own = offers
+    .filter((item) => item.store_domain === offer.store_domain && item.source === "public_price" && item.currency === offer.currency)
+    .sort((a, b) => (a.at < b.at ? 1 : -1))[0];
+  return own ? centsToDecimal(own.price_cents) : null;
+}
 
 /** Stores whose snapshot offer was withdrawn after a live read. Public: names and reasons only. */
 export function withdrawnStores(events: EventRow[], until?: string): Array<{ store_domain: string; at: string; reason: string }> {
@@ -664,6 +674,7 @@ export function posterAuction(events: EventRow[], now = Date.now()) {
     confirmed: offer.confirmed,
     stale: isStale(offer, window.opened_at),
     test: offer.test === true,
+    list_price: offer.source === "public_price" ? null : listPriceOf(offer, offers),
   }));
   const secondsLeft = Math.max(0, Math.ceil((Date.parse(window.deadline) - now) / 1000));
   const winnerPublic = closed?.public.winner as { store: string; source: OfferSource } | null | undefined;

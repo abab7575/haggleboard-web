@@ -34,6 +34,8 @@ export type ResultCardProps = {
   priceNote?: string | null;
   /** Live: fictional test stores took part (TEST_STORES=1 only). */
   testStores?: boolean;
+  /** Live: how the winner won. A private offer is said as such, never shown as its list price. */
+  winnerSource?: "public_price" | "private_offer" | "store_bid" | null;
 };
 
 /** Headline words for a band, short enough for the big line on the card. */
@@ -64,6 +66,7 @@ export function ResultCard({
   resultKind = "won",
   priceNote,
   testStores = false,
+  winnerSource = null,
 }: ResultCardProps) {
   const [copied, setCopied] = useState(false);
   const lastSeen = resultKind === "last_seen";
@@ -130,6 +133,12 @@ export function ResultCard({
             <dt>{lastSeen ? "Last seen at" : "Winner"}</dt>
             <dd>{winner}</dd>
           </div>
+          {winnerSource === "private_offer" || winnerSource === "store_bid" ? (
+            <div>
+              <dt>Winning offer</dt>
+              <dd>{winnerSource === "private_offer" ? "Private offer, amount to the asker only" : "Store bid, amount to the asker only"}</dd>
+            </div>
+          ) : null}
           {priceNote ? (
             <div>
               <dt>Price date</dt>

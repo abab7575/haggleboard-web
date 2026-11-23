@@ -2,11 +2,16 @@ import type { HomeLive, LiveRow } from "../../lib/home-live";
 
 /** One plain line about where a real request stands. */
 export function rowStatus(row: LiveRow): string {
-  if (row.status === "open") return `open, ${Math.max(0, row.seconds_left)}s left · ${row.stores} store${row.stores === 1 ? "" : "s"} in`;
+  const count = row.test_stores ? row.standing_words.toLowerCase() : `${row.stores} store${row.stores === 1 ? "" : "s"} in`;
+  if (row.status === "open") return `open, ${Math.max(0, row.seconds_left)}s left · ${count}`;
   if (row.status === "closing") return "clock just ran out";
-  if (row.status === "no_auction") return `${row.stores} store${row.stores === 1 ? "" : "s"} answered`;
+  if (row.status === "no_auction") return row.standing_words;
   if (row.winner && row.result === "last_seen") return `best last-seen price at ${row.winner}, not confirmed today`;
-  if (row.winner) return `won by ${row.winner}${row.band_label ? `, ${row.band_label}` : ""}`;
+  if (row.winner && row.winner_source !== "public_price") {
+    const band = row.band_label && row.band_label !== "private offer" ? `, ${row.band_label}` : "";
+    return `won by ${row.winner} with a private offer${band}${row.test_stores ? " (test stores)" : ""}`;
+  }
+  if (row.winner) return `won by ${row.winner}${row.band_label ? `, ${row.band_label}` : ""}${row.test_stores ? " (test stores)" : ""}`;
   return row.stores === 0 ? "closed, no store answered" : "closed, none in stock";
 }
 

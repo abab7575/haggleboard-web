@@ -38,6 +38,7 @@ type Standing = {
   confirmed: boolean;
   stale: boolean;
   test: boolean;
+  list_price?: string | null;
 };
 
 type PosterAuction = {
@@ -272,6 +273,7 @@ export function LiveArena({ requestId, initial, shareUrl }: { requestId: string;
             shareUrl={shareUrl}
             resultKind={result.kind === "last_seen" ? "last_seen" : "won"}
             priceNote={result.winnerPriceNote}
+            winnerSource={result.winnerSource}
             testStores={data.testStores}
           />
         ) : null}
@@ -352,12 +354,17 @@ function ShopperPanel({
           <p className="meta">
             {poster?.result?.kind === "last_seen"
               ? `Best last-seen price, not confirmed today (${priceNote({ confirmed: winner.confirmed, stale: winner.stale, observed_at: winner.observed_at })})`
-              : "Winning offer"}
+              : winner.source === "private_offer"
+                ? "Winning offer: a private offer to you"
+                : "Winning offer"}
           </p>
           <p className="shopper-winner-price">
             {formatPublicPrice(winner.price, winner.currency) ?? winner.price}
             <span> at {storeName(winner.store_domain)}</span>
           </p>
+          {winner.source !== "public_price" && winner.list_price ? (
+            <p className="meta">Its public list price is {formatPublicPrice(winner.list_price, winner.currency) ?? winner.list_price}.</p>
+          ) : null}
           <a className="button buy" href={winner.checkout_url} rel="noopener noreferrer nofollow" target="_blank">
             Buy at {storeName(winner.store_domain)}
           </a>
@@ -377,6 +384,7 @@ function ShopperPanel({
                 {storeName(entry.store_domain)}
                 <small>
                   {entry.source === "public_price" ? "public price" : entry.source === "private_offer" ? "private offer to you" : "store bid"}
+                  {entry.source !== "public_price" && entry.list_price ? `, list ${formatPublicPrice(entry.list_price, entry.currency) ?? entry.list_price}` : ""}
                   {entry.available ? "" : ", sold out"}
                   {entry.test ? ", test store" : ""}
                   {entry.source === "public_price"

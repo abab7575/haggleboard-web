@@ -8,7 +8,7 @@ import { HttpError } from "../../../lib/http";
 import { logPageRead } from "../../../lib/page-read";
 import { jsonLdText, PRIVATE_OFFER_HOOK, productJsonLd, requestSummary } from "../../../lib/seo";
 import { defaultDeps, getOffers } from "../../../lib/service";
-import { publicStream } from "../../../lib/stream";
+import { publicStream, standingCounts } from "../../../lib/stream";
 import type { PublicNeed, PublicOffer } from "../../../referee/types";
 
 export const dynamic = "force-dynamic";
@@ -28,8 +28,8 @@ export async function generateMetadata({ params }: { params: Promise<{ id: strin
   const { id } = await params;
   const view = await publicView(id);
   if (!view) return { title: "Request" };
-  const summary = requestSummary(view.need, view.offers, view.result.created_at);
   const stream = await publicStream((await defaultDeps()).store, id);
+  const summary = requestSummary(view.need, view.offers, view.result.created_at, Date.now(), stream ? standingCounts(stream.events) : undefined);
   // Canonical and OG carry the bare path only. A poster's token lives in their browser, never in a URL.
   return {
     ...(stream?.test_stores ? { robots: { index: false, follow: false } } : {}),
@@ -46,9 +46,9 @@ export default async function RequestPage({ params }: { params: Promise<{ id: st
   if (!view) notFound();
   const { need, offers, result } = view;
   const deps = await defaultDeps();
-  const summary = requestSummary(need, offers, result.created_at);
   const site = (process.env.SITE_URL?.trim() || "https://haggleboard.com").replace(/\/$/, "");
   const stream = await publicStream(deps.store, id);
+  const summary = requestSummary(need, offers, result.created_at, Date.now(), stream ? standingCounts(stream.events) : undefined);
   // Test stores (TEST_STORES=1, local only): no JSON-LD, and the page is kept out of every index.
   const testStores = stream?.test_stores === true;
   const posted = (await requestEvents(deps.store, id)).find((event) => event.type === "request.posted");
