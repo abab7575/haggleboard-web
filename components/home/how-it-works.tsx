@@ -119,7 +119,7 @@ export function HowItWorks() {
 
       <li className="step step--buy">
         <svg viewBox="0 0 240 150" role="img" aria-labelledby="step-buy-title">
-          <title id="step-buy-title">You pay the store directly and keep part of what a marketplace would have taken</title>
+          <title id="step-buy-title">You pay the store directly, and it charges you less because it has no selling fees to pay</title>
           <g className="d-store">
             <path d="M18 56h88v70H18z" />
             <path d="M12 56l10-24h80l10 24z" className="d-awning" />
@@ -140,23 +140,26 @@ export function HowItWorks() {
           <text x="204" y="143" textAnchor="middle" className="d-small d-pine">you pay less</text>
         </svg>
         <h3>You buy direct</h3>
-        <p>Checkout on the store&apos;s own site. The store skips the marketplace cut and passes part of it to you.</p>
+        <p>
+          You check out on the store&apos;s own website. Selling there costs the store less than selling on a big
+          shopping site like Amazon, so it can charge you less.
+        </p>
       </li>
     </ol>
   );
 }
 
-/** Illustrative only. Real fees vary by store and marketplace. */
+/** Illustrative only. Real fees vary by store and by shopping site. */
 export function MoneyDiagram() {
   return (
     <figure className="money" aria-labelledby="money-caption">
       <div className="money-flag">Illustrative numbers</div>
       <div className="money-row">
         <p className="money-label">
-          <strong>Through a marketplace</strong>
+          <strong>On a big shopping site like Amazon</strong>
           <span>You pay $100</span>
         </p>
-        <div className="money-bar" role="img" aria-label="Of $100, the store keeps $75 and the marketplace's fees and ads take $25">
+        <div className="money-bar" role="img" aria-label="Of $100, the store keeps $75 and the shopping site takes $25 in selling fees and ads">
           <span className="money-seg money-store" style={{ width: "75%" }}>
             $75
           </span>
@@ -166,15 +169,15 @@ export function MoneyDiagram() {
         </div>
         <div className="money-legend" aria-hidden="true">
           <span style={{ width: "75%" }}>Store keeps</span>
-          <span style={{ width: "25%" }}>Fees and ads</span>
+          <span style={{ width: "25%" }}>Selling fees and ads</span>
         </div>
       </div>
       <div className="money-row">
         <p className="money-label">
-          <strong>Direct, found through HaggleBoard</strong>
+          <strong>On the store&apos;s own website, found through HaggleBoard</strong>
           <span>You pay $88</span>
         </p>
-        <div className="money-bar" role="img" aria-label="Of $88, the store keeps all $88, and you keep $12 compared with the marketplace price">
+        <div className="money-bar" role="img" aria-label="Of $88, the store keeps all $88, and you pay $12 less than on the shopping site">
           <span className="money-seg money-store money-store--more" style={{ width: "88%" }}>
             $88
           </span>
@@ -184,11 +187,11 @@ export function MoneyDiagram() {
         </div>
         <div className="money-legend" aria-hidden="true">
           <span style={{ width: "88%" }}>Store keeps all of it</span>
-          <span style={{ width: "12%" }} className="money-legend-you">You keep</span>
+          <span style={{ width: "12%" }} className="money-legend-you">You save</span>
         </div>
       </div>
       <figcaption id="money-caption">
-        The $25 marketplace cut goes away. In this example the store keeps $13 more and you keep $12. HaggleBoard takes
+        The store no longer pays the $25. In this example it keeps $13 more and you pay $12 less. HaggleBoard takes
         nothing and never touches the payment. Illustrative: card fees and shipping are left out because both routes pay
         them.
       </figcaption>

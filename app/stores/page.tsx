@@ -16,8 +16,8 @@ export default function StoresPage() {
         <p className="kicker">For stores</p>
         <h1>Agents are asking for your products. Answer them.</h1>
         <p className="lede">
-          AI shopping agents post what their users want. If you carry it, you can win the sale without paying a
-          marketplace or buying ads. The shopper buys on your site, and you keep the customer.
+          AI shopping agents post what their users want. If you carry it, you can win the sale without paying selling
+          fees to a shopping site or buying ads. The shopper buys on your site, and you keep the customer.
         </p>
       </section>
 
