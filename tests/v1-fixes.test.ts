@@ -4,7 +4,9 @@ import path from "node:path";
 import { createElement as h } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
-import { Arena } from "../components/arena/arena";
+import { Room } from "../components/brand/room";
+import { liveView } from "../components/live/live-room";
+import type { PublicStream } from "../lib/stream";
 import { parseAgentCatalog, agentQuery } from "../feeds/agent-catalog";
 import { USER_AGENT } from "../feeds/constants";
 import { arenaStateAt, type PublicArenaEvent, type PublicBidder } from "../lib/arena";
@@ -152,10 +154,10 @@ describe("1. a stale price must not win", () => {
     const arena = feedToArena(stream);
     expect(arena.result).toMatchObject({ kind: "last_seen" });
     const html = renderToStaticMarkup(
-      h(Arena, { request: arena.request, durationSec: 30, bidders: arena.bidders, events: arena.events, demo: false, variant: "full", startStatic: true }),
+      h(Room, { view: liveView(stream, opened + 40_000) }),
     );
-    expect(html).toContain("Best last-seen price, not confirmed today");
-    expect(html).toContain("last seen");
+    expect(html).toContain("Best last-seen price at ");
+    expect(html).toContain("not confirmed today");
     const stats = await publicStats(store, opened + 60_000);
     expect(stats.auctions_last_seen_only.value).toBe(1);
     expect(stats.winner_beat_best_public_price.closed_with_winner).toBe(0);
@@ -474,38 +476,42 @@ describe("4. test arena (TEST_STORES=1, local only)", () => {
     const arena = feedToArena(stream);
     expect(arena.testStores).toBe(true);
     const html = renderToStaticMarkup(
-      h(Arena, { request: arena.request, durationSec: 120, bidders: arena.bidders, events: arena.events, demo: false, variant: "full", startStatic: true }),
+      h(Room, { view: liveView(stream, opened + 130_000) }),
     );
     expect(html).toContain("Test stores");
-    expect(html).toContain("test store");
+    expect(html).toMatch(/Test store\b/);
     await store.close();
   });
 });
 
 describe("the public view tells the right story", () => {
-  it("a lane standing on a private offer leads with 'Private offer', and its public price is only a small list price", () => {
-    const bidders: PublicBidder[] = [
-      { id: "t", name: "late-store.example", tone: "clay", publicPrice: "$124.99", priceNote: "confirmed today" },
-      { id: "q", name: "quick-store.example", tone: "plum", publicPrice: "$119.99", priceNote: "confirmed today" },
-    ];
-    const events: PublicArenaEvent[] = [
-      { kind: "join", at: 1, bidder: "q" },
-      { kind: "lead", at: 1, bidder: "q", band: 0, label: "at the best public price" },
-      { kind: "join", at: 20, bidder: "t" },
-      { kind: "lead", at: 25, bidder: "t", band: 15, label: "10 to 20% under", private: true },
-    ];
-    const html = renderToStaticMarkup(
-      h(Arena, { request: "x", durationSec: 30, bidders, events, demo: false, variant: "full", opensAt: new Date(Date.now() - 60_000).toISOString() }),
-    );
-    const lane = html.slice(html.indexOf("late-store.example"), html.indexOf("quick-store.example", html.indexOf("late-store.example")));
-    expect(lane).toMatch(/class="lane-private">Private offer/);
-    expect(lane).toContain("10 to 20% under");
-    expect(lane).toContain('class="lane-list">list $124.99');
-    // The public price is not the headline of a private-offer lane.
-    expect(lane).not.toMatch(/class="lane-price[^>]*>\$124\.99/);
-    // The losing public-price store keeps its price as the headline.
-    expect(html).toMatch(/class="lane-price"[^>]*>\$119\.99/);
-    expect(html).toContain("goes private and grabs the lead");
+  it("a paddle leading on a private offer says 'Private' and a rough band, never its public price as the bid", () => {
+    const at = (s: number) => new Date(Date.parse("2026-11-23T00:00:00.000Z") + s * 1000).toISOString();
+    const joined = (seq: number, store: string, price: string, s: number) =>
+      ({ seq, type: "store.joined", at: at(s), store, source: "public_price", public_price: price, currency: "USD", observed_at: at(s), confirmed: true, stale: false, test: false }) as const;
+    const feed: PublicStream = {
+      request_id: "x",
+      requestLabel: "x",
+      deadline: at(30),
+      window_seconds: 30,
+      seconds_left: 3,
+      status: "open",
+      now: at(27),
+      test_stores: false,
+      events: [
+        joined(1, "quick-store.com", "119.99", 1),
+        { seq: 2, type: "lead.changed", at: at(1), store: "quick-store.com", source: "public_price", band: "at_public", band_label: "at the best public price" },
+        joined(3, "late-store.com", "124.99", 20),
+        { seq: 4, type: "lead.changed", at: at(25), store: "late-store.com", source: "private_offer", band: "under_10_20", band_label: "10 to 20% under the best public price" },
+      ],
+    };
+    const view = liveView(feed, Date.parse(at(27)));
+    const late = view.paddles.find((p) => p.name.replace(/\u200b/g, "") === "late-store.com")!;
+    expect(late).toMatchObject({ amount: "Private", state: "lead", tag: "about 10 to 20% cheaper" });
+    // The losing public-price store keeps its public price on its paddle.
+    expect(view.paddles.find((p) => p.name.replace(/\u200b/g, "") === "quick-store.com")!.amount).toBe("$119.99");
+    const html = renderToStaticMarkup(h(Room, { view }));
+    expect(html).toContain("Takes the lead, about 10 to 20% cheaper.");
   });
 
   it("counts every store in the standing, and says 'Test stores only' for a test-store auction", () => {
@@ -536,7 +542,5 @@ describe("5. small things", () => {
     const a = state.bidders.find((s) => s.bidder.id === "a")!;
     expect(a).toMatchObject({ leading: false, band: null, label: null, leads: 1 });
     expect(state.bidders.find((s) => s.bidder.id === "b")).toMatchObject({ leading: true, band: 15 });
-    const html = renderToStaticMarkup(h(Arena, { request: "x", durationSec: 120, bidders, events, demo: true, variant: "full", startStatic: true }));
-    expect(html).toContain("outbid");
   });
 });

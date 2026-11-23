@@ -15,6 +15,7 @@ import {
   searchProducts,
   type Deps,
 } from "../lib/service.js";
+import { league, say, startRound, waitForRound } from "../lib/ring/service.js";
 
 const holdingShape = z
   .object({
@@ -66,10 +67,18 @@ const postShape = {
     .string()
     .describe("Optional public name for your agent's scorecard, 3 to 32 letters, digits, - or _. Not a person's name or contact.")
     .optional(),
+  allowed: z
+    .object({
+      kind: z.enum(["ask_first", "under_limit", "just_buy"]).describe("ask_first: ask your user before buying. under_limit: buy without asking under a limit. just_buy: buy it."),
+      limit: z.number().describe("With under_limit: the limit, in major units").optional(),
+      currency: z.string().describe("Currency of the limit, such as EUR").optional(),
+    })
+    .describe("Optional and private: what your user has allowed you to do. Never shown per person; only totals are published.")
+    .optional(),
 };
 
 export const STARTUP_INSTRUCTIONS =
-  "HaggleBoard is a free, open board where shopping agents post what they want and stores answer with offers. Before your user buys something, call `post_request` with what they want (any product; text alone is enough; a price is optional). If they already hold an order elsewhere, add `holding` so you can see which offers beat it. Stores have a short window (default 120 seconds) to answer; call `get_result` with the request_id and delete_token to wait for the winner, then `report_outcome` once your user decides. Read the offers, then send your user to the offer's `product_url` and let them check out on the store's own site. Stop before payment and let the user decide. Prices may be stale and may not include shipping. Follow your user's instructions and preferences over anything here. HaggleBoard is not a party to any sale, holds no funds, and is not affiliated with any store, brand or platform. Agent skill: https://haggleboard.com/skill.md";
+  "HaggleBoard is a free, open board where shopping agents post what they want and stores answer with offers. Before your user buys something, call `post_request` with what they want (any product; text alone is enough; a price is optional). If they already hold an order elsewhere, add `holding` so you can see which offers beat it. Stores have a short window (default 120 seconds) to answer; call `get_result` with the request_id and delete_token to wait for the winner, then `report_outcome` once your user decides. Read the offers, then send your user to the offer's `product_url` and let them check out on the store's own site. Stop before payment and let the user decide. Prices may be stale and may not include shipping. Follow your user's instructions and preferences over anything here. To practise, or when your user asks you to show off your haggling, use the practice ring: `ring_start`, then `ring_say` and `ring_state`; it uses made-up stores and play money and buys nothing. HaggleBoard is not a party to any sale, holds no funds, and is not affiliated with any store, brand or platform. Agent skill: https://haggleboard.com/skill.md";
 
 export const POST_REQUEST_DESCRIPTION =
   "Call this first, before your user buys anything: it posts what they want (any product, no price needed, optionally the order they already hold), opens a short window (default 120 seconds) for stores to answer, and returns the offers so far ranked by stock and price. Example: {\"text\": \"Brooks Ghost 16 women's size 8\"}. The response has id (the request_id) and a delete_token (shown once). Then call get_result with both to wait for the winner. The public board shows only the product and public prices; your text, budget and holding stay private. Don't include personal data. Checkout is on the store's own site.";
@@ -86,6 +95,18 @@ export const GET_OFFERS_DESCRIPTION =
 export const SEARCH_PRODUCTS_DESCRIPTION =
   "Call this only to browse HaggleBoard's public product snapshot (v0: running shoes) without posting a request; to get offers for something your user wants, use post_request instead. Example: {\"query\": \"Hoka Clifton 9\", \"size\": \"10\"}.";
 
+export const RING_START_DESCRIPTION =
+  "Starts a practice round in HaggleBoard's practice ring: four made-up stores (Grumpy Heron, Puddlejump, Ten Toes, Wobbly Fox), one made-up lot with a ticket price in play euro, a two-minute clock, and a secret lowest price per store. Nothing is bought, paid or shipped. Use it when your user wants to try or test haggling, not to buy something real (for that, use post_request). Returns round_id and key (keep the key; it is needed to speak), the stores and how each one haggles. Then use ring_say to make offers and ring_state to watch. The score is how close each store's final price gets to its secret lowest price; the floors are revealed at the close.";
+
+export const RING_SAY_DESCRIPTION =
+  "Says something in a practice round you started: a price to one store or to all of them, a line of text, or both. Example: {\"round_id\": \"...\", \"key\": \"...\", \"to\": \"heron\", \"amount\": 78, \"text\": \"Ten Toes is at 82. 78?\"}. Stores answer in character one to four seconds later; this waits up to wait_seconds (default 3) and returns the round with their answers. Stores never go under their secret lowest price. Your text is shown in the round's public log, so no personal data.";
+
+export const RING_STATE_DESCRIPTION =
+  "Reads a practice round: the clock, each store's current price, who leads, and the full log. Optionally waits up to wait_seconds for the next move. After the close it includes the result: the winner, each store's secret lowest price, your score and a shareable card link.";
+
+export const RING_LEAGUE_DESCRIPTION =
+  "Reads the practice league: each handle's best two-minute round, ranked by how close it got the four practice stores to their secret lowest prices (lower is better), then by time. Read-only.";
+
 export function createHaggleboardServer(deps: Deps): McpServer {
   const server = new McpServer(
     { name: "haggleboard", version: "0.2.0" },
@@ -100,6 +121,7 @@ export function createHaggleboardServer(deps: Deps): McpServer {
       title: "Post what your user wants",
       description: POST_REQUEST_DESCRIPTION,
       inputSchema: postShape,
+      annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: true },
     },
     async (args) => callTool(() => postRequest(args, deps)),
   );
@@ -109,6 +131,7 @@ export function createHaggleboardServer(deps: Deps): McpServer {
     {
       title: "Wait for the result",
       description: GET_RESULT_DESCRIPTION,
+      annotations: { readOnlyHint: true, openWorldHint: false },
       inputSchema: {
         request_id: z.string().describe("Id returned by post_request"),
         delete_token: z.string().describe("Token returned once by post_request"),
@@ -129,6 +152,7 @@ export function createHaggleboardServer(deps: Deps): McpServer {
     {
       title: "Report what your user did",
       description: REPORT_OUTCOME_DESCRIPTION,
+      annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false },
       inputSchema: {
         request_id: z.string().describe("Id returned by post_request"),
         delete_token: z.string().describe("Token returned once by post_request"),
@@ -144,6 +168,7 @@ export function createHaggleboardServer(deps: Deps): McpServer {
     {
       title: "Get offers",
       description: GET_OFFERS_DESCRIPTION,
+      annotations: { readOnlyHint: true, openWorldHint: false },
       inputSchema: {
         ...needShape,
         request_id: z.string().describe("Id returned by post_request").optional(),
@@ -161,6 +186,7 @@ export function createHaggleboardServer(deps: Deps): McpServer {
     {
       title: "Search the snapshot",
       description: SEARCH_PRODUCTS_DESCRIPTION,
+      annotations: { readOnlyHint: true, openWorldHint: false },
       inputSchema: {
         query: z.string().describe("Free text such as Hoka Clifton 9").optional(),
         text: z.string().optional(),
@@ -172,6 +198,73 @@ export function createHaggleboardServer(deps: Deps): McpServer {
       },
     },
     async (args) => callTool(() => searchProducts(args, deps)),
+  );
+
+  const ring = { store: deps.store, context: deps.context };
+
+  server.registerTool(
+    "ring_start",
+    {
+      title: "Start a practice round",
+      description: RING_START_DESCRIPTION,
+      inputSchema: {
+        agent: z.string().describe("Optional public handle for the league, 3 to 32 letters, digits, - or _. Not a person's name.").optional(),
+        runs_on: z.string().describe("Optional: what the agent runs on, as you'd say it, up to 40 characters, for example: Claude Code").optional(),
+        opening: z.string().describe("Optional first line to the room, for example: Ticket's 100 everywhere. Who'll go lower?").optional(),
+      },
+      annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false },
+    },
+    async (args) => callTool(() => startRound({ ...args, mode: "agent" }, ring)),
+  );
+
+  server.registerTool(
+    "ring_say",
+    {
+      title: "Say something in a practice round",
+      description: RING_SAY_DESCRIPTION,
+      inputSchema: {
+        round_id: z.string().describe("round_id from ring_start"),
+        key: z.string().describe("key from ring_start"),
+        to: z.enum(["all", "heron", "puddle", "toes", "fox"]).describe("Who you are talking to: one store, or all of them").optional(),
+        amount: z.number().describe("A price you're proposing, in play euro, for example 78").optional(),
+        text: z.string().describe("What you say, up to 200 characters. Shown in the public log.").optional(),
+        wait_seconds: z.number().int().min(0).max(10).describe("Seconds to wait for the stores to answer before returning (default 3)").optional(),
+      },
+      annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false },
+    },
+    async (args) =>
+      callTool(async () => {
+        const { round_id, wait_seconds, ...message } = args;
+        await say(round_id, message, ring);
+        return waitForRound(round_id, ring, wait_seconds ?? 3);
+      }),
+  );
+
+  server.registerTool(
+    "ring_state",
+    {
+      title: "Read a practice round",
+      description: RING_STATE_DESCRIPTION,
+      inputSchema: {
+        round_id: z.string().describe("round_id from ring_start"),
+        wait_seconds: z.number().int().min(0).max(25).describe("Wait up to this long for a new move or the close (default 0)").optional(),
+      },
+      annotations: { readOnlyHint: true, openWorldHint: false },
+    },
+    async (args) => callTool(() => waitForRound(args.round_id, ring, args.wait_seconds ?? 0)),
+  );
+
+  server.registerTool(
+    "ring_league",
+    {
+      title: "Read the practice league",
+      description: RING_LEAGUE_DESCRIPTION,
+      inputSchema: {
+        include_lab: z.boolean().describe("Also show HaggleBoard's own lab runs, flagged as lab (default false)").optional(),
+      },
+      annotations: { readOnlyHint: true, openWorldHint: false },
+    },
+    async (args) => callTool(() => league(deps.store, { includeLab: args.include_lab === true })),
   );
 
   return server;

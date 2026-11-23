@@ -1,6 +1,7 @@
 import { CLOSE_GRACE_MS, eventsWithLazyClose, type Band } from "./auction.js";
 import type { Store } from "./db.js";
 import { eventsOfType, type EventRow } from "./events.js";
+import { practiceTotals } from "./ring/service.js";
 
 /**
  * Public aggregates, built from the event log only. Internal traffic (tests, our own tools,
@@ -56,6 +57,15 @@ export async function publicStats(store: Store, now = Date.now()) {
   const lastSeen = closed.filter((event) => event.public.winner != null && event.public.result === "last_seen");
   const withWinner = closed.filter((event) => event.public.winner != null && event.public.result !== "last_seen");
   const beat = withWinner.filter((event) => event.public.beat_public === true).length;
+  const outcomes = await eventsOfType(store, "outcome.reported");
+  const rules = await eventsOfType(store, "store.rule_set");
+  const latestOutcome = new Map<string, string>();
+  for (const event of outcomes) if (event.request_id) latestOutcome.set(event.request_id, String(event.public.outcome));
+  const winnerIds = new Set(withWinner.map((event) => event.request_id));
+  const boughtThere = [...latestOutcome.entries()].filter(([id, outcome]) => winnerIds.has(id) && outcome === "bought_at_winner").length;
+  const ruleStores = new Set(rules.map((event) => event.store_domain).filter(Boolean));
+  const handles = new Set(posted.map((event) => event.public.handle).filter((handle) => typeof handle === "string"));
+  const practice = await practiceTotals(store);
   return {
     as_of: asOf,
     since: posted[0]?.at ?? null,
@@ -74,6 +84,62 @@ export async function publicStats(store: Store, now = Date.now()) {
       beat,
       closed_with_winner: withWinner.length,
     },
+    /** What users have allowed their agents to do, as the agents said it. Totals only, never per person. */
+    allowed: allowedTotals(posted, asOf),
+    /** The experiment's six links (docs/EXPERIMENT.md), counted from the same outside-only log. */
+    experiment: {
+      link1_agents_ask: { real_posts: metric(posted.length, posted.length, asOf), named_agents: metric(handles.size, posted.length, asOf), agent_classes: metric(classes.size, posted.length, asOf) },
+      link2_stores_answer: {
+        stores_with_rule: metric(ruleStores.size, rules.length, asOf),
+        beat_best_public_price: metric(withWinner.length ? beat / withWinner.length : null, withWinner.length, asOf),
+      },
+      link3_shopper_takes_it: metric(withWinner.length ? boughtThere / withWinner.length : null, withWinner.length, asOf),
+      link4_brand_ahead: { status: "not measurable yet", note: "Needs stores to tell us what they kept." },
+      link5_customer_returns: { status: "not measurable yet", note: "Needs stores to tell us about reorders." },
+      link6_relationship_bids: { status: "not built" },
+    },
+    /** The practice ring, counted apart. Never part of any number above. */
+    practice: {
+      note: "Practice rounds with made-up stores and play money. Outside rounds only; our own lab runs are left out.",
+      rounds: metric(practice.rounds, practice.rounds, asOf),
+      rounds_finished: metric(practice.closed, practice.rounds, asOf),
+      named_agents: metric(practice.handles, practice.rounds, asOf),
+    },
+  };
+}
+
+/** Medians are only published once at least this many limits back them, so no one person's limit shows. */
+export const ALLOWED_MIN_FOR_MEDIAN = 5;
+
+export function allowedTotals(posted: EventRow[], asOf: string) {
+  const kinds = { ask_first: 0, under_limit: 0, just_buy: 0 };
+  const limits = new Map<string, number[]>();
+  let told = 0;
+  for (const event of posted) {
+    const allowed = event.private.allowed as { kind?: string; limit?: number | null; currency?: string | null } | undefined;
+    if (!allowed || !allowed.kind || !(allowed.kind in kinds)) continue;
+    told += 1;
+    kinds[allowed.kind as keyof typeof kinds] += 1;
+    if (allowed.kind === "under_limit" && typeof allowed.limit === "number" && allowed.currency) {
+      const list = limits.get(allowed.currency) ?? [];
+      list.push(allowed.limit);
+      limits.set(allowed.currency, list);
+    }
+  }
+  return {
+    note: "Only what agents chose to tell us. Totals only.",
+    told: metric(told, posted.length, asOf),
+    ask_first: metric(kinds.ask_first, told, asOf),
+    under_limit: metric(kinds.under_limit, told, asOf),
+    just_buy: metric(kinds.just_buy, told, asOf),
+    median_limit: [...limits.entries()]
+      .filter(([, list]) => list.length >= ALLOWED_MIN_FOR_MEDIAN)
+      .map(([currency, list]) => {
+        const sorted = [...list].sort((a, b) => a - b);
+        const mid = Math.floor(sorted.length / 2);
+        const median = sorted.length % 2 ? sorted[mid]! : (sorted[mid - 1]! + sorted[mid]!) / 2;
+        return { currency, ...metric(median, sorted.length, asOf) };
+      }),
   };
 }
 

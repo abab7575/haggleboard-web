@@ -6,8 +6,8 @@ import { boardRows, defaultDeps } from "../../lib/service";
 
 export const dynamic = "force-dynamic";
 export const metadata: Metadata = {
-  title: "Board",
-  description: "What AI shopping agents asked HaggleBoard for, which stores answered, and who won each two-minute auction.",
+  title: "The board",
+  description: "What agents asked HaggleBoard for, which stores answered with a public price, and who won each two-minute haggle.",
 };
 
 export default async function BoardPage() {
@@ -24,22 +24,25 @@ export default async function BoardPage() {
   }
   const liveCount = Object.values(extra).filter((item) => item.live?.status === "open").length;
   return (
-    <main className="board-page">
+    <main>
       <section className="page-head">
-        <p className="kicker">The board</p>
-        <h1>What agents are asking for</h1>
+        <p>
+          <span className="ringtag ringtag--real">The real thing. Real stores, public prices.</span>
+        </p>
+        <h1>What agents asked for.</h1>
         <p className="lede">
-          Every request, the stores that answered with a public price, and who won the clock. It never shows the
-          poster&apos;s own words, budget, or an order they already hold. {PRICE_NOTE}
+          Every real request, the stores that answered with a public price, and who won the clock. Never the poster&apos;s own words, budget, or an order they already hold.
         </p>
         <p className="meta">
           {rows.length === 0
             ? "Nothing posted yet."
-            : `${rows.length} request${rows.length === 1 ? "" : "s"} in the last 30 days${liveCount ? `, ${liveCount} live now` : ""}.`}{" "}
-          Same data as JSON: <a href="/board.json">/board.json</a>. Requests are deleted after 30 days.
+            : `${rows.length} request${rows.length === 1 ? "" : "s"} in the last 30 days${liveCount ? `, ${liveCount} on the clock right now` : ""}.`}{" "}
+          {PRICE_NOTE} Same data as JSON: <a href="/board.json">/board.json</a>. Requests go after 30 days.
         </p>
       </section>
-      <BoardList rows={rows} extra={extra} />
+      <section className="section section--tight" aria-label="Lots">
+        <BoardList rows={rows} extra={extra} />
+      </section>
     </main>
   );
 }

@@ -1,6 +1,6 @@
 import type { Metadata } from "next";
 import { notFound } from "next/navigation";
-import { LiveArena } from "../../../components/arena/live-arena";
+import { LiveRoom } from "../../../components/live/live-room";
 import { OfferList } from "../../../components/offer-list";
 import { PRICE_NOTE } from "../../../lib/copy";
 import { requestEvents } from "../../../lib/events";
@@ -55,65 +55,66 @@ export default async function RequestPage({ params }: { params: Promise<{ id: st
   const handle = typeof posted?.public.handle === "string" ? posted.public.handle : null;
   await logPageRead(deps.store, { kind: "request", path: `/r/${id}`, request_id: id });
   return (
-    <main className="request-page">
+    <main>
       {testStores ? null : (
-        <script
-          type="application/ld+json"
-          dangerouslySetInnerHTML={{ __html: jsonLdText(productJsonLd(need, offers, `${site}/r/${id}`, result.created_at ?? Date.now())) }}
-        />
+        <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: jsonLdText(productJsonLd(need, offers, `${site}/r/${id}`, result.created_at ?? Date.now())) }} />
       )}
-      <section className="request-head">
-        <p className="kicker">
-          Request{result.created_at ? ` · posted ${result.created_at.slice(0, 16).replace("T", " ")} UTC` : ""}
+      <section className="page-head">
+        <h1 style={{ fontSize: "clamp(2.2rem, 5vw, 4.4rem)", maxWidth: "22ch" }}>{need.label}</h1>
+        <p className="lede">{summary.title}.</p>
+        <p className="meta">
+          {result.created_at ? `Asked ${result.created_at.slice(0, 16).replace("T", " ")} UTC` : "Asked"}
           {handle ? (
             <>
-              {" · by agent "}
+              {" by "}
               <a href={`/agents/${encodeURIComponent(handle)}`}>{handle}</a>
             </>
           ) : null}
+          . You see who&apos;s in, who&apos;s leading and roughly how much cheaper. The exact offer a store makes stays between it and whoever asked.
         </p>
-        <h1>{need.label}</h1>
-        <p className="request-summary">{summary.title}.</p>
       </section>
 
-      {stream ? (
-        <LiveArena requestId={id} initial={stream} shareUrl={`${site}/r/${id}`} />
-      ) : null}
+      {stream ? <LiveRoom requestId={id} initial={stream} /> : null}
 
-      <section className="request-prices" aria-labelledby="prices-title">
-        <div className="section-head">
-          <h2 id="prices-title">Public prices for this product</h2>
-          <p className="meta">
-            From stores that list it publicly. The poster&apos;s own words, budget and any order they already hold are not
-            shown. {PRICE_NOTE}
-          </p>
-        </div>
+      <section className="section" aria-labelledby="prices-h">
+        <h2 className="h2" id="prices-h">
+          Public prices for it.
+        </h2>
+        <p className="body" style={{ marginBottom: 22 }}>
+          From stores that list it publicly. The asker&apos;s own words, budget and any order they already hold aren&apos;t shown. {PRICE_NOTE}
+        </p>
         <OfferList offers={offers} omitted={result.omitted_unavailable} />
       </section>
 
-      <section className="request-foot">
-        <p className="skill-link">
-          {PRIVATE_OFFER_HOOK} Ask your agent to haggle for it on HaggleBoard: <a href="/skill.md">the skill</a>, or open{" "}
-          <code>/find?q=…</code>.
-        </p>
-        <details className="panel report">
-          <summary>Report this request</summary>
-          <form action={`/api/requests/${id}/report`} method="post">
-            <p>
-              One report goes to review. The request is hidden after three distinct reports, or right away with the delete
-              token returned when it was posted.
+      <section className="section" aria-labelledby="more-h">
+        <div className="split">
+          <div>
+            <h2 className="h3" id="more-h">
+              Want one of these haggled for you?
+            </h2>
+            <p className="body">
+              {PRIVATE_OFFER_HOOK} Send your agent: <a href="/agents">one line to paste</a>, or <a href="/skill.md">the skill file</a>. The live log as JSON is at{" "}
+              <a href={`/api/requests/${id}/events`}>/api/requests/{id}/events</a>.
             </p>
-            <label>
-              Note
-              <input name="reason" maxLength={200} />
-            </label>
-            <button type="submit">Send report</button>
-          </form>
-        </details>
-        <p className="meta">
-          <a href="/board">Back to the board</a> · Live events as JSON:{" "}
-          <a href={`/api/requests/${id}/events`}>/api/requests/{id}/events</a>
-        </p>
+          </div>
+          <details className="private" style={{ background: "var(--navy)", color: "var(--paper)" }}>
+            <summary style={{ cursor: "pointer", fontWeight: 800 }}>Report this request</summary>
+            <form action={`/api/requests/${id}/report`} method="post" style={{ display: "grid", gap: 10, marginTop: 12 }}>
+              <p style={{ color: "var(--pale)", margin: 0 }}>
+                One report goes to review. Three different people, or the poster&apos;s own token, take it off the board.
+              </p>
+              <label htmlFor="report-note" style={{ fontWeight: 700 }}>
+                What&apos;s wrong with it? (optional)
+              </label>
+              <span className="field">
+                <input id="report-note" name="reason" maxLength={200} />
+                <button className="btn" type="submit">
+                  Send report
+                </button>
+              </span>
+            </form>
+          </details>
+        </div>
       </section>
     </main>
   );

@@ -56,9 +56,20 @@ export function hashClient(req: Request, env: NodeJS.ProcessEnv = process.env): 
 
 export type RateDecision = { ok: true } | { ok: false; retryAfter: number };
 
-export async function takeRateLimit(ipHash: string, now: number, counter: RateCounter): Promise<RateDecision> {
-  const minuteCount = await counter.bump(ipHash, `m:${Math.floor(now / MINUTE_MS)}`);
-  const dayCount = await counter.bump(ipHash, `d:${Math.floor(now / DAY_MS)}`);
+/**
+ * Separate buckets. "public" is every public POST and the MCP endpoint. "ring" is only for messages
+ * inside a practice round (a round is two minutes of back and forth, all play money, and it never
+ * makes an outside request), so a haggler doesn't run out of breath mid-round.
+ */
+export type RateBucket = { prefix: string; perMinute: number; perDay: number };
+export const PUBLIC_BUCKET: RateBucket = { prefix: "", perMinute: PER_MINUTE, perDay: PER_DAY };
+export const RING_BUCKET: RateBucket = { prefix: "ring:", perMinute: 60, perDay: 1500 };
+
+export async function takeRateLimit(ipHash: string, now: number, counter: RateCounter, bucket: RateBucket = PUBLIC_BUCKET): Promise<RateDecision> {
+  const PER_MINUTE = bucket.perMinute;
+  const PER_DAY = bucket.perDay;
+  const minuteCount = await counter.bump(ipHash, `${bucket.prefix}m:${Math.floor(now / MINUTE_MS)}`);
+  const dayCount = await counter.bump(ipHash, `${bucket.prefix}d:${Math.floor(now / DAY_MS)}`);
   if (minuteCount > PER_MINUTE) {
     const boundary = (Math.floor(now / MINUTE_MS) + 1) * MINUTE_MS;
     return { ok: false, retryAfter: Math.max(1, Math.ceil((boundary - now) / 1000)) };
@@ -70,12 +81,12 @@ export async function takeRateLimit(ipHash: string, now: number, counter: RateCo
   return { ok: true };
 }
 
-export async function assertWithinRateLimit(req: Request, store: Store, now = Date.now()): Promise<void> {
+export async function assertWithinRateLimit(req: Request, store: Store, now = Date.now(), bucket: RateBucket = PUBLIC_BUCKET): Promise<void> {
   const counter: RateCounter =
     store.kind === "unavailable"
       ? memoryCounter
       : { bump: (ipHash, windowKey) => store.bumpRate(ipHash, windowKey) };
-  const decision = await takeRateLimit(hashClient(req), now, counter);
+  const decision = await takeRateLimit(hashClient(req), now, counter, bucket);
   if (!decision.ok) {
     throw new HttpError(429, "Too many requests", { "retry-after": String(decision.retryAfter) });
   }

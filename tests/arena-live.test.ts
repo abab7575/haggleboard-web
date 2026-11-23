@@ -3,12 +3,12 @@ import path from "node:path";
 import { createElement as h } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { beforeAll, describe, expect, it } from "vitest";
-import { Arena } from "../components/arena/arena";
-import { AgentRecord } from "../components/arena/agent-record";
-import { LiveArena } from "../components/arena/live-arena";
-import { ResultCard } from "../components/arena/result-card";
-import { LiveStrip } from "../components/home/live-strip";
+import { BoardList } from "../components/board-list";
+import { Room } from "../components/brand/room";
+import { LiveRoom, liveView } from "../components/live/live-room";
 import { PRIVATE_FIELD_NAMES } from "../lib/arena";
+import { rowStatus } from "../lib/home-live";
+import { boardRows } from "../lib/service";
 import { BAND_POSITION, feedToArena, formatPublicPrice, mergeFeedEvents } from "../lib/arena-live";
 import { readFixture } from "../lib/catalog";
 import { openPglite, type Store } from "../lib/db";
@@ -179,23 +179,12 @@ describe("feed to arena adapter", () => {
     expect(arena.bidders.find((b) => b.id === "gone-now.com")?.priceNote).toBe("no longer listed");
     expect(arena.events.find((e) => e.kind === "withdraw")).toMatchObject({ bidder: "gone-now.com", at: 30 });
     expect(arena.result).toMatchObject({ kind: "last_seen", kindLabel: "Best last-seen price, not confirmed today" });
-    const html = renderToStaticMarkup(
-      h(ResultCard, {
-        request: "x",
-        winner: "old-snapshot.com",
-        bandLabel: arena.result!.label ?? undefined,
-        wonAtSec: 0,
-        windowSec: 120,
-        stores: 2,
-        demo: false,
-        resultKind: "last_seen",
-        priceNote: arena.result!.winnerPriceNote,
-      }),
-    );
+    const html = renderToStaticMarkup(h(Room, { view: liveView(stale, Date.parse(FEED.now)) }));
     const text = visibleText(html);
-    expect(text).toContain("Best last-seen price, not confirmed today");
-    expect(text).toContain("last seen 18 Oct, not confirmed");
-    expect(text).not.toMatch(/\bWon\b/);
+    expect(text).toContain("Best last-seen price");
+    expect(text).toContain("not confirmed today");
+    expect(text).toContain("No longer listed");
+    expect(text).not.toMatch(/\bWon\b|Sold to old-snapshot/);
   });
 
   it("ignores private fields even if a feed ever carried them", () => {
@@ -227,43 +216,21 @@ describe("feed to arena adapter", () => {
   });
 
   it("renders a live arena and a real result card with the band, never a private amount", () => {
-    const arena = feedToArena(FEED);
-    const html = [
-      renderToStaticMarkup(
-        h(Arena, {
-          request: arena.request,
-          durationSec: arena.durationSec,
-          bidders: arena.bidders,
-          events: arena.events,
-          demo: false,
-          variant: "full",
-          perspective: "public",
-          opensAt: arena.opensAt!,
-        }),
-      ),
-      renderToStaticMarkup(
-        h(ResultCard, {
-          request: arena.request,
-          winner: arena.result!.winnerName!,
-          bandLabel: arena.result!.label!,
-          wonAtSec: arena.result!.wonAtSec,
-          windowSec: 120,
-          stores: 2,
-          demo: false,
-          perspective: "public",
-        }),
-      ),
-    ].join("\n");
+    const html = renderToStaticMarkup(h(Room, { view: liveView(FEED, Date.parse(FEED.now)) }));
     const text = visibleText(html);
-    expect(html).not.toMatch(/data-demo-label/);
-    expect(text).toMatch(/example-road.com wins ?, 5 to 10% under the best public price/);
-    expect(text).toContain("$119.95 public price");
+    expect(text).toContain("Sold to example-road.com");
+    expect(text).toContain("about 5 to 10% cheaper");
+    expect(text).toContain("$119.95");
     expect(text).toContain("confirmed today");
-    expect(text).toContain("Real auction");
-    expect(text).toContain("5 to 10%");
+    expect(text).toContain("The real thing. Real stores.");
+    expect(text).toContain("Private");
     expect(text).not.toContain("Test stores");
-    expect(text).toContain("After 40 seconds (clock: 2 minutes)");
     expect(text).not.toMatch(/114\.37|\$114/);
+    // Mid-auction: the clock, the leader, and the band only.
+    const mid = visibleText(renderToStaticMarkup(h(Room, { view: liveView({ ...FEED, status: "open", events: FEED.events.slice(0, 5) }, Date.parse("2026-11-22T14:21:00.000Z")) })));
+    expect(mid).toContain("Leading: example-road.com.");
+    expect(mid).toContain("about 5 to 10% cheaper");
+    expect(mid).not.toMatch(/114\.37|\$114/);
   });
 });
 
@@ -285,7 +252,7 @@ describe("live data end to end, from a real request", () => {
     expect(arena.status).toBe("open");
     expect(arena.bidders.find((b) => b.id === "example-private.test")?.publicPrice).toBeUndefined();
     expect(arena.bidders.some((b) => b.publicPrice === "$119.95")).toBe(true);
-    const html = renderToStaticMarkup(h(LiveArena, { requestId: posted.id, initial: stream, shareUrl: `https://haggleboard.com/r/${posted.id}` }));
+    const html = renderToStaticMarkup(h(LiveRoom, { requestId: posted.id, initial: stream }));
     expect(html).toContain("Women Brooks Ghost 16 size 8");
     expect(html).not.toMatch(/114\.37|11437|777/);
     expect(html).not.toContain(posted.delete_token!);
@@ -304,46 +271,46 @@ describe("live data end to end, from a real request", () => {
     const posted = await postRequest({ text: "left-handed cast iron teapot", auction_seconds: 30 }, deps);
     const stream = (await publicStream(store, posted.id, Date.now() + 40_000))!;
     expect(stream.status).toBe("closed");
-    const text = visibleText(renderToStaticMarkup(h(LiveArena, { requestId: posted.id, initial: stream, shareUrl: "x" })));
-    expect(text).toContain("No store answered in time");
-    expect(text).not.toContain("Clock's out. example");
+    const text = visibleText(renderToStaticMarkup(h(LiveRoom, { requestId: posted.id, initial: stream })));
+    expect(text).toContain("Nobody bit");
+    expect(text).not.toMatch(/Sold to/);
   });
 
-  it("homepage strip: outside requests only, and says so plainly when there are none", async () => {
+  it("homepage numbers count outside requests only, and the board says so plainly when there are none", async () => {
     const empty = await openPglite();
     const none = await homeLive(empty);
-    expect(visibleText(renderToStaticMarkup(h(LiveStrip, { live: none })))).toContain("No real requests yet. Be the first.");
+    expect(none.requests).toBe(0);
+    expect(visibleText(renderToStaticMarkup(h(BoardList, { rows: [] })))).toContain("Nothing on the board yet.");
     await postRequest({ brand: "Brooks", model: "Ghost 16", gender: "women", size: "8" }, { store: empty, loadVariants: async () => fixture, origin: "test", context: { ...outside, internal: true } });
     expect((await homeLive(empty)).latest).toHaveLength(0);
 
     const live = await homeLive(store);
     expect(live.requests).toBeGreaterThan(0);
     expect(live.latest.length).toBeGreaterThan(0);
-    const text = visibleText(renderToStaticMarkup(h(LiveStrip, { live })));
-    expect(text).toContain("Latest on the board");
-    expect(text).not.toContain("No real requests yet");
+    expect(rowStatus(live.latest[0]!)).not.toMatch(/114\.37|777/);
+    const rows = await boardRows(deps);
+    const text = visibleText(renderToStaticMarkup(h(BoardList, { rows })));
+    expect(text).toContain("Women Brooks Ghost 16 size 8");
     expect(text).not.toMatch(/114\.37|777/);
   });
 
-  it("agent scorecard renders from the real record: counts and bands, no amounts", async () => {
+  it("agent scorecard comes from the real record: counts and bands, no amounts", async () => {
     await postRequest({ brand: "Brooks", model: "Ghost 16", gender: "women", size: "8", handle: "trail-bot", auction_seconds: 30 }, deps);
     const card = (await agentScorecard(store, "trail-bot", Date.now() + 40_000))!;
-    const html = renderToStaticMarkup(h(AgentRecord, { card }));
-    const text = visibleText(html);
-    expect(text).toContain("trail-bot");
-    expect(text).toContain("Real record");
-    expect(text).toMatch(/at the best public price/);
-    expect(text).not.toMatch(/\$\d|119\.95/);
-    expect(html).not.toMatch(/data-demo-label/);
+    const json = JSON.stringify(card);
+    expect(card.handle).toBe("trail-bot");
+    expect(json).toMatch(/at_public/);
+    expect(json).not.toMatch(/\$\d|119\.95|11995/);
   });
 });
 
 describe("the poster's token never goes into a URL", () => {
-  it("homepage keeps it in localStorage and the arena reads a #fragment, then removes it", () => {
-    const enhancer = fs.readFileSync(path.join(process.cwd(), "components/home/ask-enhancer.tsx"), "utf8");
-    expect(enhancer).toContain("localStorage.setItem(`hb:token:${body.id}`");
-    expect(enhancer).toContain("window.location.assign(`/r/${body.id}`)");
-    const live = fs.readFileSync(path.join(process.cwd(), "components/arena/live-arena.tsx"), "utf8");
+  it("the room reads a #fragment into localStorage, then removes it; the practice key stays in localStorage too", () => {
+    const ring = fs.readFileSync(path.join(process.cwd(), "components/ring/ring-game.tsx"), "utf8");
+    expect(ring).toContain("window.localStorage.setItem(keyName(body.round_id), body.key)");
+    expect(ring).not.toMatch(/[?&](key|token)=\$\{/);
+    const live = fs.readFileSync(path.join(process.cwd(), "components/live/live-room.tsx"), "utf8");
+    expect(live).toContain("window.localStorage.setItem(tokenKey(id), token)");
     expect(live).toContain("history.replaceState");
     expect(live).toContain('"x-haggleboard-delete-token": token');
     expect(live).not.toMatch(/[?&](t|token|delete_token)=\$\{/);

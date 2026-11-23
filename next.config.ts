@@ -2,6 +2,10 @@ import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
   poweredByHeader: false,
+  async redirects() {
+    // The scripted demo arena is gone: the practice ring is the real, playable version.
+    return [{ source: "/arena/demo", destination: "/ring", permanent: false }];
+  },
   async headers() {
     return [
       {
@@ -26,7 +30,7 @@ const nextConfig: NextConfig = {
   },
   serverExternalPackages: ["better-sqlite3", "postgres"],
   outputFileTracingIncludes: {
-    "*": ["./fixtures/**/*.json", "./llms.txt", "./spec/**/*.json", "./feeds/seeds/*.json", "./skill/**/*.md"],
+    "*": ["./fixtures/**/*.json", "./llms.txt", "./spec/**/*.json", "./feeds/seeds/*.json", "./skill/**/*.md", "./public/fonts/*.ttf"],
   },
   experimental: {
     extensionAlias: {

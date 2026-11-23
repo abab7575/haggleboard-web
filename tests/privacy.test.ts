@@ -135,7 +135,8 @@ describe("no private field on a public surface", () => {
     // The homepage strip lists outside requests only; this one came from a test host, so it is not
     // dressed up as real activity there. It is on the board.
     expect(html).not.toContain(`/r/${posted.id}`);
-    expect(html).toContain("No real requests yet. Be the first.");
+    // The home page shows no real request at all, only the practice ring and honest counts.
+    expect(html).toContain("Going, going,");
     assertNoPrivateHtml("/", html);
   });
 
