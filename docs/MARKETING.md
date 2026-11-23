@@ -143,4 +143,4 @@ The person whose boss asks "are we doing the right stuff for agent commerce?" op
 | First real post | Email loop on for US stores |
 | First store claim | Private offers on, timed auctions real, the first store-win post |
 
-The only waits are named: the owner's review of tonight's work, the sending address, and Grok's answers on email law and Amazon's pricing rule.
+The only waits are named: the owner's review of tonight's work, the sending address, and Grok's answers on email law and the big shopping sites' pricing rules.

@@ -125,10 +125,11 @@ export default async function HomePage({ searchParams }: { searchParams: Promise
 
       <section className="money-section" aria-labelledby="money-title">
         <div className="money-intro">
-          <h2 id="money-title">Where your discount comes from</h2>
+          <h2 id="money-title">Why the store can charge you less</h2>
           <p>
-            Stores pay marketplaces and ad platforms a big cut to reach shoppers. When your agent finds the store
-            directly, that cut is not spent. The store keeps some of it and gives you some of it to win the deal.
+            When a store sells on one of the big shopping sites, the site takes a slice of every sale. When your agent
+            buys from the store&apos;s own website, the store pays nothing for the sale. So it can give you a better price
+            and still come out ahead.
           </p>
         </div>
         <MoneyDiagram />
@@ -154,7 +155,7 @@ export default async function HomePage({ searchParams }: { searchParams: Promise
           <h2>For stores</h2>
           <p className="audience-lead">Agents are asking for your products. Answer them.</p>
           <p>
-            Win a sale without paying a marketplace or buying ads. You set the offer, the shopper buys on your site, and
+            Win a sale without paying selling fees to a shopping site or buying ads. You set the offer, the shopper buys on your site, and
             you keep the customer. Claiming a store is not open yet. <a href="/stores">What a store sees, and how to be
             removed</a>.
           </p>
