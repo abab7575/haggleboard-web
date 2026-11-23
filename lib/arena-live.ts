@@ -24,6 +24,8 @@ export const BAND_POSITION: Record<Band, number> = {
   under_5_10: 10,
   under_10_20: 15,
   under_20_plus: 20,
+  near_public: 0,
+  withheld: 0,
 };
 
 /** Short words for a lane. The close keeps the engine's full band label. */
@@ -36,7 +38,27 @@ export const BAND_SHORT: Record<Band, string> = {
   under_5_10: "5 to 10% under",
   under_10_20: "10 to 20% under",
   under_20_plus: "more than 20% under",
+  near_public: "within 5% of the best public price",
+  withheld: "private offer",
 };
+
+const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+
+/** "18 Oct" from an ISO time (UTC). */
+export function shortDate(iso: string | null): string | null {
+  if (!iso) return null;
+  const d = new Date(iso);
+  if (!Number.isFinite(d.getTime())) return null;
+  return `${d.getUTCDate()} ${MONTHS[d.getUTCMonth()]}`;
+}
+
+/** What a public price's date says: "confirmed today", "last seen 18 Oct, not confirmed", "seen 20 Nov". */
+export function priceNote(input: { confirmed: boolean; stale: boolean; observed_at: string | null }): string {
+  if (input.confirmed) return "confirmed today";
+  const date = shortDate(input.observed_at);
+  if (input.stale) return date ? `last seen ${date}, not confirmed` : "date unknown, not confirmed";
+  return date ? `seen ${date}, not confirmed today` : "not confirmed today";
+}
 
 const TONES: BidderTone[] = ["clay", "plum", "ochre", "slate"];
 
@@ -71,6 +93,14 @@ export type LiveResult = {
   wonAtSec: number;
   bidders: number;
   leadChanges: number;
+  /** How the winner won: its public price, a private offer, or a keyed store bid. */
+  winnerSource: "public_price" | "private_offer" | "store_bid" | null;
+  /** won: confirmed live. last_seen: the best offer left was never confirmed today. */
+  kind: "won" | "last_seen" | "none";
+  /** "Best last-seen price, not confirmed today" for last_seen. */
+  kindLabel: string | null;
+  /** The winner's price date, in words ("confirmed today", "last seen 18 Oct, not confirmed"). */
+  winnerPriceNote: string | null;
 };
 
 export type LiveArenaData = {
@@ -84,6 +114,8 @@ export type LiveArenaData = {
   events: PublicArenaEvent[];
   /** Number of stores that answered so far. */
   joined: number;
+  /** True when a fictional test store is in this auction (TEST_STORES=1 only). */
+  testStores: boolean;
   result: LiveResult | null;
 };
 
@@ -120,19 +152,51 @@ export function feedToArena(feed: FeedLike): LiveArenaData {
   const raw: unknown[] = [];
   const lastLeadAt = new Map<string, number>();
   const joinedAt = new Map<string, number>();
+  const notes = new Map<string, string>();
+  let testStores = false;
   let result: LiveResult | null = null;
   const sorted = [...feed.events].sort((a, b) => a.seq - b.seq);
   for (const event of sorted) {
     if (event.type === "store.joined") {
       const price = event.source === "public_price" ? formatPublicPrice(event.public_price, event.currency) : undefined;
       const bidder = bidderFor(event.store, price);
+      const entry = bidders.find((b) => b.id === bidder)!;
+      if (event.test) {
+        entry.test = true;
+        testStores = true;
+      }
+      if (price) {
+        const note = priceNote(event);
+        entry.priceNote = note;
+        notes.set(bidder, note);
+      }
       joinedAt.set(bidder, at(event.at));
       raw.push({ kind: "join", at: at(event.at), bidder });
+    } else if (event.type === "price.confirmed") {
+      const bidder = bidderFor(event.store);
+      const entry = bidders.find((b) => b.id === bidder)!;
+      const price = formatPublicPrice(event.public_price, event.currency);
+      if (price) entry.publicPrice = price;
+      entry.priceNote = "confirmed today";
+      notes.set(bidder, "confirmed today");
+    } else if (event.type === "store.withdrawn") {
+      const bidder = bidderFor(event.store);
+      const entry = bidders.find((b) => b.id === bidder)!;
+      entry.priceNote = "no longer listed";
+      notes.set(bidder, "no longer listed");
+      raw.push({ kind: "withdraw", at: at(event.at), bidder });
     } else if (event.type === "lead.changed") {
       const bidder = bidderFor(event.store);
       const when = at(event.at);
       lastLeadAt.set(bidder, when);
-      raw.push({ kind: "lead", at: when, bidder, band: BAND_POSITION[event.band] ?? 0, label: BAND_SHORT[event.band] });
+      raw.push({
+        kind: "lead",
+        at: when,
+        bidder,
+        band: BAND_POSITION[event.band] ?? 0,
+        label: BAND_SHORT[event.band],
+        ...(event.source !== "public_price" ? { private: true } : {}),
+      });
     } else if (event.type === "auction.closed") {
       const winner = event.winner ? bidderFor(event.winner.store) : null;
       const wonAtSec = winner ? (lastLeadAt.get(winner) ?? joinedAt.get(winner) ?? 0) : 0;
@@ -144,6 +208,17 @@ export function feedToArena(feed: FeedLike): LiveArenaData {
         wonAtSec,
         bidders: event.bidders,
         leadChanges: event.lead_changes,
+        kind: event.result,
+        winnerSource: event.winner?.source ?? null,
+        kindLabel: event.result_label,
+        winnerPriceNote:
+          event.winner && event.winner.source === "public_price"
+            ? priceNote({
+                confirmed: event.winner.confirmed,
+                stale: event.result === "last_seen",
+                observed_at: event.winner.observed_at,
+              })
+            : null,
       };
       raw.push({
         kind: "close",
@@ -151,7 +226,8 @@ export function feedToArena(feed: FeedLike): LiveArenaData {
         winner,
         saved_pct: null,
         won_at: wonAtSec,
-        ...(event.band_label ? { label: event.band_label } : {}),
+        ...(event.result === "last_seen" ? { result: "last_seen", label: event.result_label ?? "not confirmed today" } : {}),
+        ...(event.result !== "last_seen" && event.band_label ? { label: event.band_label } : {}),
       });
     }
   }
@@ -165,6 +241,7 @@ export function feedToArena(feed: FeedLike): LiveArenaData {
     bidders,
     events: toPublicArenaEvents(raw),
     joined: joinedAt.size,
+    testStores,
     result,
   };
 }

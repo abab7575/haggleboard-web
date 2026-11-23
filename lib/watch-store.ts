@@ -5,8 +5,10 @@ import type { CatalogVariant } from "../referee/types.js";
 
 export type WatchStoreResult = {
   store_domain: string;
-  source: "brand" | "arc" | "seed";
+  source: "learned" | "brand" | "arc" | "seed";
   status: "answered" | "no_match" | "skipped";
+  /** How the store was asked: its own agent catalog search (ucp_mcp, storefront_mcp) or its public feed. */
+  route?: "ucp_mcp" | "storefront_mcp" | "feed";
   /** Why a store was skipped or had no match. Plain words, no private data. */
   reason: string | null;
   checkout_route_known: boolean | null;

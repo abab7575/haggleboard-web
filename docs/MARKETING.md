@@ -1,6 +1,6 @@
 # HaggleBoard: the organic plan
 
-Written 22 Nov 2026 for Andy. No paid acquisition, on purpose: the product exists to end paying for traffic, so it has to grow without buying any.
+Written 22 Nov 2026 for the owner. No paid acquisition, on purpose: the product exists to end paying for traffic, so it has to grow without buying any.
 
 ## The goal, in order
 
@@ -59,11 +59,11 @@ These are developer tool listings, which are allowed.
 
 - **MCP directories:** the official MCP Registry, Smithery, Glama, PulseMCP, mcp.so.
 - **Skill lists:** a public `haggleboard-skill` repo, plus pull requests to the main skill collections.
-- **Agentic commerce lists:** Andy's own awesome-agentic-commerce, and the others that accept pull requests.
+- **Agentic commerce lists:** the owner's own awesome-agentic-commerce, and the others that accept pull requests.
 - **The protocol:** the HaggleBoard Protocol spec is already public. Serve `/.well-known/haggleboard` on our own site as the reference.
-- **Open-source shopping agents** (browser-use and the personal agents built on the Personal Agent Protocol): a small "check HaggleBoard before buying" tool, as a pull request. Claude prepares each one; Andy submits it under his own account.
+- **Open-source shopping agents** (browser-use and the personal agents built on the Personal Agent Protocol): a small "check HaggleBoard before buying" tool, as a pull request. Claude prepares each one; the owner submits it under his own account.
 
-Account-only items for Andy, when he has ten minutes: the Claude connectors directory and the ChatGPT app listing. Everything else needs nothing from him.
+Account-only items for the owner, when he has ten minutes: the Claude connectors directory and the ChatGPT app listing. Everything else needs nothing from him.
 
 ## Part 4: the arena is the content
 
@@ -74,7 +74,7 @@ People don't share a comparison table. They share a fight with a clock on it.
 - **Agent scorecards:** deals won, total saved, fastest win, streak. People like seeing their agent's record, and a record is a reason to route the next purchase through it.
 - **A weekly public number:** what agents asked for most, where stores beat marketplaces and by how much. Real data only, with the count behind it.
 
-Posts on X, Hacker News and Reddit go out under Andy's name only. Drafts live in `docs/POSTS.md`. First three:
+Posts on X, Hacker News and Reddit go out under the owner's name only. Drafts live in `docs/POSTS.md`. First three:
 
 1. The launch: a screen recording of one real auction, start to finish. No explanation above the fold.
 2. "We asked an agent to buy the same thing ten times. Here's where it went." Real runs, real numbers.
@@ -82,7 +82,7 @@ Posts on X, Hacker News and Reddit go out under Andy's name only. Drafts live in
 
 ## Part 5: bring stores in with real demand
 
-Approved by Andy on 22 Nov 2026: one automated email to a store when a real agent request matches its products.
+Approved by the owner on 22 Nov 2026: one automated email to a store when a real agent request matches its products.
 
 **The rules, built into the code:**
 
@@ -139,8 +139,8 @@ The person whose boss asks "are we doing the right stuff for agent commerce?" op
 | --- | --- |
 | Tonight | Any-product posting, the skill, the watcher, the new homepage and arena, the data log |
 | Next | One-address posting, request pages, store pages, IndexNow, sitemap |
-| On launch day | Directory listings, the skill repo, launch post draft to Andy |
+| On launch day | Directory listings, the skill repo, launch post draft to the owner |
 | First real post | Email loop on for US stores |
 | First store claim | Private offers on, timed auctions real, the first store-win post |
 
-The only waits are named: Andy's review of tonight's work, the sending address, and Grok's answers on email law and Amazon's pricing rule.
+The only waits are named: the owner's review of tonight's work, the sending address, and Grok's answers on email law and Amazon's pricing rule.

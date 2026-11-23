@@ -224,6 +224,11 @@ export function Arena({
     >
       <header className="arena-head">
         {demo ? <DemoLabel /> : <span className={`live-label${state.close ? " is-closed" : ""}`}>{state.close ? "Closed" : "Live"}</span>}
+        {!demo && bidders.some((b) => b.test) ? (
+          <span className="test-stores-label" title="Fictional stores for local testing. Not real store activity.">
+            Test stores
+          </span>
+        ) : null}
         <span className="arena-speed">
           {opensAt ? `Real-time clock, ${durationWords(durationSec)}` : isStatic ? "Two-minute clock, finished" : `Two-minute clock${rate > 1 ? `, ${rate}x speed` : ""}`}
         </span>
@@ -277,23 +282,43 @@ export function Arena({
                 </span>
               </span>
               <span className="lane-band">
-                {b.joined && b.bidder.publicPrice ? (
-                  <span className="lane-price" title="The store's public list price">
+                {b.bidder.test ? <span className="lane-test">test store</span> : null}
+                {b.joined && b.privateOffer && !b.withdrawn ? (
+                  // A store standing on a private offer: the offer is the headline, its list price is secondary.
+                  <>
+                    <span className="lane-private">
+                      Private offer
+                      {b.leading && b.band != null && b.label && b.label !== "private offer" ? <small> · {b.label}</small> : null}
+                    </span>
+                    {b.bidder.publicPrice ? <span className="lane-list">list {b.bidder.publicPrice}</span> : null}
+                  </>
+                ) : b.joined && b.bidder.publicPrice ? (
+                  <span className={`lane-price${b.withdrawn ? " is-withdrawn" : ""}`} title="The store's public list price">
                     {b.bidder.publicPrice}
                     <small> public price</small>
                   </span>
                 ) : null}
-                {b.joined
+                {b.joined && b.withdrawn ? <span className="lane-note lane-note--out">no longer listed</span> : null}
+                {b.joined && !b.withdrawn && !b.privateOffer && b.bidder.publicPrice && b.bidder.priceNote ? (
+                  <span className={`lane-note${/not confirmed/.test(b.bidder.priceNote) ? " lane-note--stale" : ""}`}>{b.bidder.priceNote}</span>
+                ) : null}
+                {b.joined && !b.withdrawn && b.privateOffer
+                  ? b.leading
+                    ? null
+                    : <span className="lane-note">outbid</span>
+                  : b.joined && !b.withdrawn
                   ? b.band == null || (b.bidder.publicPrice && !b.leading)
                     ? b.bidder.publicPrice
                       ? null
-                      : "in, no lead yet"
+                      : b.leads > 0
+                        ? "outbid"
+                        : "in, no lead yet"
                     : bandText(b.band, b.label)
                   : ""}
               </span>
               {b.leading ? (
                 <span className="lane-stamp" key={`${state.leadKey}-${won ? "won" : "lead"}`}>
-                  {won ? "Won" : "Lead"}
+                  {won ? (state.close?.result === "last_seen" ? "Last seen" : "Won") : "Lead"}
                 </span>
               ) : null}
             </li>
@@ -395,6 +420,15 @@ function Finish({
       </div>
     );
   }
+  if (close.result === "last_seen") {
+    return (
+      <div className="arena-finish arena-finish--unconfirmed" role="status">
+        <p className="arena-finish-winner">Clock&apos;s out</p>
+        <p className="arena-finish-big arena-finish-big--words">Best last-seen price, not confirmed today</p>
+        <p className="arena-finish-sub">At {winner}. No store confirmed a price during this auction.</p>
+      </div>
+    );
+  }
   if (close.label || close.saved_pct == null) {
     return (
       <div className="arena-finish" role="status">
@@ -464,7 +498,12 @@ function StaticStory({
           <strong>No winner.</strong> No store had it in stock when the clock ran out.
         </p>
       ) : null}
-      {close && winner && close.saved_pct == null ? (
+      {close && winner && close.result === "last_seen" ? (
+        <p className="arena-story-close">
+          <strong>Best last-seen price, not confirmed today</strong>, at {winner}.
+        </p>
+      ) : null}
+      {close && winner && close.saved_pct == null && close.result !== "last_seen" ? (
         <p className="arena-story-close">
           <strong>{winner} wins</strong>, {savedText(close)}. Winning offer in after {durationWords(close.won_at)}.
         </p>

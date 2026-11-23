@@ -109,7 +109,8 @@ describe.each(DRIVERS)("event log on %s", (_name, open) => {
     let events = await requestEvents(store, posted.id);
     const leads = events.filter((event) => event.type === "lead.changed");
     expect(leads.map((event) => event.store_domain)).toEqual(["example-run.test", "example-road.test"]);
-    expect(leads[1]!.public).toMatchObject({ source: "private_offer", band: "under_0_5" });
+    // 115.00 against 119.95: a private offer shows the coarse "within 5%" band, never "up to 5% under".
+    expect(leads[1]!.public).toMatchObject({ source: "private_offer", band: "near_public" });
     expect(JSON.stringify(leads[1]!.public)).not.toMatch(/115|11500/);
 
     // An even lower offer after the deadline is recorded but changes nothing.
@@ -135,8 +136,22 @@ describe.each(DRIVERS)("event log on %s", (_name, open) => {
     const closes = (await requestEvents(store, posted.id)).filter((event) => event.type === "auction.closed");
     expect(closes).toHaveLength(1);
     expect(closes[0]!.id).toBe(closedEventId(posted.id));
-    expect(closes[0]!.public).toMatchObject({ winner: { store: "example-road.test", source: "private_offer" }, band: "under_0_5", bidders: 2, lead_changes: 2, beat_public: true });
-    expect(closes[0]!.private).toMatchObject({ winner_price_cents: 11500, gap_to_public_cents: 495, gap_to_holding_cents: 350 });
+    expect(closes[0]!.public).toMatchObject({
+      winner: { store: "example-road.test", source: "private_offer", confirmed: true },
+      result: "won",
+      band: "near_public",
+      bidders: 2,
+      lead_changes: 2,
+      // Public beat flag is withheld with a near_public band (it would split the band again).
+      beat_public: null,
+    });
+    expect(closes[0]!.private).toMatchObject({
+      winner_price_cents: 11500,
+      gap_to_public_cents: 495,
+      gap_to_holding_cents: 350,
+      plain_band: "under_0_5",
+      beat_public: true,
+    });
     await store.close();
   });
 
@@ -173,7 +188,7 @@ describe.each(DRIVERS)("event log on %s", (_name, open) => {
   it("stats leave out internal traffic and give the count and date with every number", async () => {
     const store = await open();
     const outside = await postRequest({ ...ghost, auction_seconds: 30 }, depsFor(store, outsideContext("chatgpt-user")));
-    await privateOffer(store, outside.id, 11500);
+    await privateOffer(store, outside.id, 10500);
     await postRequest({ ...ghost, auction_seconds: 30 }, depsFor(store)); // internal (test) traffic
     await postRequest({ ...ghost, auction_seconds: 30 }, depsFor(store, { ...outsideContext("gptbot"), internal: true }));
     const later = Date.now() + 60_000;
@@ -226,7 +241,7 @@ describe("public event stream", () => {
     expect(body).not.toMatch(/114\.37|11437|PRIVATEWORDS|SecretSellerCo|118\.5|11850|777|"US"|holding|max_price|caller|internal/);
     expect(stream.events.filter((event) => event.type === "store.joined").every((event) => event.source === "public_price")).toBe(true);
     const closed = stream.events.at(-1)!;
-    expect(closed).toMatchObject({ type: "auction.closed", winner: { store: "example-road.test" }, band: "under_0_5" });
+    expect(closed).toMatchObject({ type: "auction.closed", winner: { store: "example-road.test" }, band: "near_public" });
     expect(stream.events.map((event) => event.seq)).toEqual(stream.events.map((_, i) => i + 1));
     await store.close();
   });
@@ -313,11 +328,11 @@ describe("handles and scorecards", () => {
     await expect(postRequest({ ...ghost, handle: "admin" }, depsFor(store))).rejects.toMatchObject({ status: 400 });
     const posted = await postRequest({ ...ghost, handle: "Shoe-Bot", auction_seconds: 30 }, depsFor(store, outsideContext()));
     expect(posted.handle).toBe("shoe-bot");
-    await privateOffer(store, posted.id, 11500);
+    await privateOffer(store, posted.id, 10500);
     await postRequest({ ...ghost, handle: "shoe-bot" }, depsFor(store)); // internal, not counted
     const card = (await agentScorecard(store, "shoe-bot", Date.now() + 60_000))!;
     expect(card).toMatchObject({ requests: 1, auctions_closed: 1, beat_best_public_price: 1 });
-    expect(JSON.stringify(card)).not.toMatch(/115|119\.95|11500/);
+    expect(JSON.stringify(card)).not.toMatch(/105\.00|119\.95|10500/);
     expect(await agentScorecard(store, "nobody-here")).toBeNull();
     await store.close();
   });

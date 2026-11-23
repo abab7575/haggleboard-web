@@ -1,7 +1,7 @@
 import type { Store } from "./db.js";
 import { publicNeed } from "./privacy.js";
 import { publicStats } from "./stats.js";
-import { publicStream, type PublicStream } from "./stream.js";
+import { publicStream, standingCounts, standingWords, type PublicStream } from "./stream.js";
 import { normalizeStoredNeed } from "../referee/parse.js";
 import type { ResolvedNeed } from "../referee/types.js";
 
@@ -21,6 +21,12 @@ export type LiveRow = {
   stores: number;
   winner: string | null;
   band_label: string | null;
+  /** Same words as the request page: "3 stores answered", "Test stores only". */
+  standing_words: string;
+  test_stores: boolean;
+  winner_source: "public_price" | "private_offer" | "store_bid" | null;
+  /** "last_seen" when no offer was confirmed live: never shown as a win. */
+  result: "won" | "last_seen" | "none" | null;
 };
 
 export async function liveRow(store: Store, row: { id: string; created_at: string; need_json: string }, now = Date.now()): Promise<LiveRow> {
@@ -35,9 +41,13 @@ export async function liveRow(store: Store, row: { id: string; created_at: strin
     label: need.label,
     status: stream?.status ?? "no_auction",
     seconds_left: stream?.seconds_left ?? 0,
-    stores: events.filter((event) => event.type === "store.joined").length,
+    stores: standingCounts(events).stores,
+    standing_words: standingWords(standingCounts(events)),
+    test_stores: standingCounts(events).test > 0,
+    winner_source: closed && closed.type === "auction.closed" ? (closed.winner?.source ?? null) : null,
     winner: closed && closed.type === "auction.closed" ? (closed.winner?.store.replace(/^www\./, "") ?? null) : null,
     band_label: closed && closed.type === "auction.closed" ? closed.band_label : null,
+    result: closed && closed.type === "auction.closed" ? closed.result : null,
   };
 }
 

@@ -128,8 +128,23 @@ const outside: EventContext = {
 };
 
 describe("request pages built to be found", () => {
-  it("has a summary title and Product + AggregateOffer JSON-LD from public prices only", async () => {
+  it("says 'best last-seen price ... not confirmed' and leaves stale prices out of JSON-LD", async () => {
+    // The mini catalog was observed on 18 Oct, more than 7 days before this request.
     const deps: Deps = { store, loadVariants: async () => fixture, context: outside };
+    const posted = await postRequest({ brand: "Brooks", model: "Ghost 16", gender: "women", size: "8" }, deps);
+    const page = await import("../app/r/[id]/page");
+    const meta = await page.generateMetadata({ params: Promise.resolve({ id: posted.id }) });
+    expect(JSON.stringify(meta.title)).toMatch(/2 stores answered, best last-seen price \$119\.95, seen 2026-10-18, not confirmed/);
+    expect(JSON.stringify(meta.title)).not.toMatch(/best public price/);
+    const html = renderToStaticMarkup(await page.default({ params: Promise.resolve({ id: posted.id }) }));
+    const ld = JSON.parse(html.match(/<script type="application\/ld\+json">([\s\S]*?)<\/script>/)![1]!) as { offers?: unknown };
+    expect(ld.offers).toBeUndefined();
+  });
+
+  it("has a summary title and Product + AggregateOffer JSON-LD from public prices only", async () => {
+    const fresh = fixture.map((variant) => ({ ...variant, observed_at: new Date().toISOString() }));
+    await importVariants(fresh, store);
+    const deps: Deps = { store, loadVariants: async () => fresh, context: outside };
     const posted = await postRequest(
       {
         text: "PRIVATEWORDS women's Brooks Ghost 16 size 8",

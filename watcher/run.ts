@@ -1,6 +1,7 @@
 import { tmpdir } from "node:os";
 import path from "node:path";
-import { crawlStore, stopsTheRun } from "../feeds/crawl.js";
+import { agentQuery, ucpAgentProfileUrl } from "../feeds/agent-catalog.js";
+import { crawlStore, searchStoreCatalog, stopsTheRun } from "../feeds/crawl.js";
 import { CACHE_TTL_MS, resolveGlobalInterval, resolveHostInterval } from "../feeds/constants.js";
 import { createPoliteScheduler, type PoliteScheduler } from "../feeds/politeness.js";
 import { domainBlocked, readQueue } from "../feeds/queue.js";
@@ -8,7 +9,8 @@ import { loadRemoved, type StoreSeed } from "../feeds/seeds.js";
 import type { RequestOrigin, Store } from "../lib/db.js";
 import type { Statement } from "../lib/db.js";
 import { eventStatement, requestIsInternal, type NewEvent } from "../lib/events.js";
-import { recordOffers, variantOffer } from "../lib/service.js";
+import { recordOffers, variantOffer, withdrawOffer } from "../lib/service.js";
+import { brandVerdict, loadBrandIndex, loadStoreRecord, storeIsCold, storesWithHits } from "./learned.js";
 import {
   claimWatchRun,
   finishWatchRun,
@@ -32,7 +34,8 @@ import {
   WATCH_ROBOTS_REQUESTS_PER_STORE,
 } from "./constants.js";
 import { queueStoreNotifications, type NotificationDecision } from "./notify.js";
-import { applyStoreRule, getStoreRule, privateOfferStatement, storeHasClaimed } from "./store-rules.js";
+import { respondUnderRule } from "./respond.js";
+import { getStoreRule, storeHasClaimed } from "./store-rules.js";
 
 type FetchLike = (url: string, init: RequestInit) => Promise<Response>;
 
@@ -48,6 +51,8 @@ export type WatchOptions = {
   removed?: Set<string>;
   seeds?: StoreSeed[];
   queuePath?: string;
+  /** Untried ARC category stores asked per request (watcher/candidates.ts ARC_EXPLORE_PER_REQUEST). */
+  arcExplore?: number;
 };
 
 export type WatchResult = {
@@ -123,12 +128,18 @@ export async function runWatch(
     return { ...empty, ran: true, summary };
   }
 
+  const learnedIndex = await loadBrandIndex(store, need.brand);
+  const storeRecord = await loadStoreRecord(store);
   const candidates = await chooseCandidates(need, {
     arc,
     removed,
     blocked,
     variants: await loadVariants(),
     seeds: opts.seeds,
+    learned: (domain) => brandVerdict(learnedIndex, need.brand, domain),
+    learnedHits: storesWithHits(learnedIndex, need.brand),
+    cold: (domain) => storeIsCold(storeRecord, domain),
+    arcExplore: opts.arcExplore,
   });
   summary.arc_calls = arc?.calls() ?? 0;
   const internal = await requestIsInternal(store, request.id, request.origin !== "outside");
@@ -141,8 +152,17 @@ export async function runWatch(
         store_domain: candidate.domain,
         at: new Date(now()).toISOString(),
         public: {
-          found_via: candidate.source === "brand" ? "brand_site" : candidate.source === "arc" ? "arc" : "seed_list",
+          found_via:
+            candidate.source === "brand"
+              ? "brand_site"
+              : candidate.source === "arc"
+                ? "arc"
+                : candidate.source === "learned"
+                  ? "learned_index"
+                  : "seed_list",
           checkout_route_known: candidate.checkout_route_known,
+          agent_route: candidate.agent_route?.route ?? null,
+          learned: candidate.learned,
           readable: candidate.fetchable,
           skip_reason: candidate.skip_reason,
         },
@@ -197,10 +217,9 @@ export async function runWatch(
     };
 
     const readStarted = now();
-    const crawl = await crawlStore({
-      seed: { domain: candidate.fetch_host, region: "other", country: null, currency: candidate.currency },
-      pages: 1,
-      limit: WATCH_FEED_LIMIT,
+    const route = candidate.agent_route;
+    const common = {
+      seed: { domain: candidate.fetch_host, region: "other" as const, country: null, currency: candidate.currency },
       cacheDir,
       cacheTtlMs: CACHE_TTL_MS,
       perHostMs: resolveHostInterval(undefined, false),
@@ -209,46 +228,71 @@ export async function runWatch(
       sleep: opts.sleep,
       fetch: budgeted,
       scheduler,
-      skipCurrencyLookup: true,
-    });
+    };
+    const query = route ? agentQuery(need) : null;
+    // The one product request for this store: the store's own catalog search for agents when ARC lists
+    // one, else page 1 of its public product feed.
+    const crawl =
+      route && query
+        ? await searchStoreCatalog({
+            ...common,
+            route,
+            query,
+            profile: ucpAgentProfileUrl(env),
+            brandHint: need.brand,
+            official: candidate.official,
+          })
+        : await crawlStore({ ...common, pages: 1, limit: WATCH_FEED_LIMIT, skipCurrencyLookup: true });
+    const routeUsed = route && query ? route.route : "feed";
     result.fetches = storeFetches;
+    result.route = routeUsed;
     if (stopsTheRun(crawl.stop_reason)) hardStops += 1;
 
     const variants = crawl.variants.map((variant) => ({ ...variant, store_domain: candidate.domain }));
-    const matches =
-      crawl.stopped && crawl.variants.length === 0
-        ? []
-        : variants.filter((variant) => productMatches(variant, { ...need, max_price_cents: null, currency: null }, true));
+    const unreadable = crawl.stopped && crawl.variants.length === 0;
+    const productNeed = { ...need, max_price_cents: null, currency: null };
+    const matches = unreadable ? [] : variants.filter((variant) => productMatches(variant, productNeed, true));
+    const listed = unreadable ? [] : variants.filter((variant) => productMatches(variant, productNeed, false));
     const cheapest = [...matches].sort((a, b) => a.price_cents - b.price_cents)[0] ?? null;
-    // The fetch state and store.read in one transaction.
-    if (storeFetches > 0) {
-      const backoff = crawl.backoff_until ? { until: crawl.backoff_until, reason: crawl.stop_reason ?? "backoff" } : null;
-      const at = new Date(now()).toISOString();
-      await store.batch([
-        recordFetchStatement(candidate.domain, at, backoff),
-        watcherEvent({
-          type: "store.read",
-          store_domain: candidate.domain,
-          at,
-          public: {
-            outcome: readOutcome(crawl.stopped && crawl.variants.length === 0 ? crawl.stop_reason : null, matches.length > 0),
-            ms: Math.max(0, now() - readStarted),
-            fetches: storeFetches,
-            public_price: cheapest ? cheapest.price : null,
-            currency: cheapest ? cheapest.currency : null,
-            in_stock: cheapest ? cheapest.available : null,
-          },
-        }),
-      ]);
-    }
+    const outcome = unreadable ? readOutcome(crawl.stop_reason, false) : matches.length > 0 ? "found" : listed.length > 0 ? "out_of_stock" : "not_found";
+    // The fetch state and store.read in one transaction. A read answered from the 12-hour cache is
+    // logged too (fetches: 0), so the event log and the learned index see every answer.
+    const at = new Date(now()).toISOString();
+    const backoff = crawl.backoff_until ? { until: crawl.backoff_until, reason: crawl.stop_reason ?? "backoff" } : null;
+    await store.batch([
+      ...(storeFetches > 0 ? [recordFetchStatement(candidate.domain, at, backoff)] : []),
+      watcherEvent({
+        type: "store.read",
+        store_domain: candidate.domain,
+        at,
+        public: {
+          outcome,
+          route: routeUsed,
+          brand: need.brand,
+          ms: Math.max(0, now() - readStarted),
+          fetches: storeFetches,
+          from_cache: storeFetches === 0,
+          public_price: cheapest ? cheapest.price : null,
+          currency: cheapest ? cheapest.currency : null,
+          in_stock: cheapest ? cheapest.available : listed.length > 0 ? false : null,
+        },
+      }),
+    ]);
 
-    if (crawl.stopped && crawl.variants.length === 0) {
+    if (unreadable) {
       result.reason = capped ? "would need more than one request (redirect)" : skipReason(crawl.stop_reason);
       continue;
     }
     if (!cheapest) {
       result.status = "no_match";
-      result.reason = "the store's first feed page did not list this product";
+      result.reason =
+        outcome === "out_of_stock"
+          ? "the store lists this product but it is sold out"
+          : routeUsed === "feed"
+            ? "the store's first feed page did not list this product"
+            : "the store's catalog search did not return this product";
+      // A live read says the item is missing or sold out here: withdraw this store's snapshot offer.
+      await withdrawOffer(store, request.id, candidate.domain, outcome === "out_of_stock" ? "out_of_stock" : "not_found", now());
       continue;
     }
     result.status = "answered";
@@ -261,32 +305,12 @@ export async function runWatch(
       also: watchOfferStatements(request.id, matches),
     });
 
-    if (rulesOn && need.holding && (await storeHasClaimed(store, candidate.domain))) {
+    // A claimed store's standing rule: beat the held order, or with none, go under the current leader.
+    if (rulesOn && (await storeHasClaimed(store, candidate.domain))) {
       const rule = await getStoreRule(store, candidate.domain);
       if (rule) {
-        const decision = applyStoreRule(rule, cheapest, need, request.id, now());
-        if (decision.offer) {
-          const offer = decision.offer;
-          await recordOffers(
-            store,
-            request.id,
-            [
-              {
-                store_domain: offer.store_domain,
-                source: "private_offer",
-                via: "store_rule",
-                price_cents: offer.price_cents,
-                currency: offer.currency,
-                available: true,
-                product_url: offer.product_url,
-                title: offer.title,
-                expires_at: offer.expires_at,
-              },
-            ],
-            { now: now(), also: [privateOfferStatement(offer)] },
-          );
-          privateOffers += 1;
-        }
+        const decision = await respondUnderRule(store, { id: request.id, need }, rule, cheapest, { now: now() });
+        if (decision.offer) privateOffers += 1;
       }
     }
   }

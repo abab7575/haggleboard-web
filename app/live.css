@@ -48,8 +48,77 @@
 .result-card-pct--band strong { font-size: clamp(2rem, 4vw, 2.8rem) !important; line-height: 1 !important; }
 .result-card-pct--band span { max-width: 30ch !important; font-size: var(--t-sm) !important; color: var(--muted); padding-bottom: 0 !important; }
 .result-card--band .result-card-stamp { top: 3.4rem; }
-.live-stage .arena--full { --lane-cols: 14.5rem minmax(0, 1fr) 9rem 3.6rem; }
-@media (min-width: 1021px) { .live-stage > .arena { position: sticky; top: 1rem; } }
+.live-stage .arena--full { --lane-cols: 15rem minmax(0, 1fr) 11.5rem 3.6rem; }
+/* The arena and its key share the left column, so the column does not end in dead space under a tall poster panel. */
+.live-main { display: grid; gap: 1.1rem; align-content: start; min-width: 0; }
+@media (min-width: 1021px) { .live-main { position: sticky; top: 1rem; } }
+
+/* ---------- price dates, withdrawn stores, the arena key ---------- */
+
+/* A store standing on a private offer: the offer is the headline, the list price is small and secondary. */
+.lane-private { color: var(--paper); font-weight: 700; white-space: nowrap; }
+.lane-private small { font-weight: 600; font-size: 0.72rem; color: inherit; white-space: normal; }
+.lane.is-leading .lane-private { color: var(--pine-bright); }
+.lane-list { color: var(--night-muted); font-size: 0.7rem; font-weight: 600; font-variant-numeric: tabular-nums; white-space: nowrap; }
+/* Store names are long domains: let them wrap onto two lines before anything is cut. */
+.live-stage .lane-label { white-space: normal; overflow: visible; text-overflow: clip; overflow-wrap: anywhere; line-height: 1.15; }
+.lane-note { color: var(--night-muted); font-size: 0.7rem; font-weight: 600; white-space: nowrap; }
+.lane-note--stale { color: #f0c27a; }
+.lane-note--out { color: #f0a08f; }
+.lane-price.is-withdrawn { text-decoration: line-through; opacity: 0.6; }
+.arena-finish--unconfirmed .arena-finish-big { color: #f0c27a; }
+.result-card-stamp--unconfirmed { color: var(--muted); border-color: var(--muted); font-size: 0.75rem; }
+
+.arena-key { padding: 1rem 1.2rem; }
+.arena-key h2 { font-size: var(--t-base); margin: 0 0 0.5rem; }
+.arena-key dl { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0.6rem 1.2rem; margin: 0; }
+.arena-key dt { font-weight: 700; font-size: var(--t-sm); }
+.arena-key dd { margin: 0.1rem 0 0; color: var(--muted); font-size: var(--t-sm); }
+
+/* ---------- TEST_STORES (local only) ---------- */
+
+.test-stores-label {
+  display: inline-block;
+  font-size: var(--t-xs);
+  font-weight: 800;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: #1a1206;
+  background: repeating-linear-gradient(135deg, #f0c27a 0 8px, #e5ad55 8px 16px);
+  border-radius: 999px;
+  padding: 0.15rem 0.6rem;
+}
+.arena-head .test-stores-label { margin-left: 0.6rem; }
+.lane-test {
+  font-size: 0.62rem;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: #1a1206;
+  background: #f0c27a;
+  border-radius: 4px;
+  padding: 0 0.3rem;
+}
+.test-stores-banner {
+  grid-column: 1 / -1;
+  margin: 0;
+  padding: 0.75rem 1rem;
+  border: 2px dashed #c98a2b;
+  border-radius: 14px;
+  background: #fbf0dc;
+  color: var(--ink);
+  font-size: var(--t-sm);
+}
+/* One column: the arena, then the poster's result, then the key. */
+@media (max-width: 1020px) {
+  .live-main { display: contents; }
+  .live-stage > .live-side { order: 1; }
+  .live-main > .arena-key { order: 2; }
+}
+@media (max-width: 640px) {
+  .arena-key dl { grid-template-columns: minmax(0, 1fr); }
+  .lane-note { white-space: normal; }
+}
 .live-side .shopper-panel { order: -1; }
 
 .shopper-panel {

@@ -1,3 +1,5 @@
+import { createHash } from "node:crypto";
+import { parseAgentCatalog, searchBody, type AgentRoute } from "./agent-catalog.js";
 import { cachePath, readCache, writeCache } from "./cache.js";
 import {
   BACKOFF_MS,
@@ -220,6 +222,128 @@ export async function crawlStore(opts: CrawlOptions): Promise<StoreCrawlResult> 
   return base;
 }
 
+export type CatalogSearchOptions = Omit<CrawlOptions, "pages" | "limit" | "skipCurrencyLookup"> & {
+  route: AgentRoute;
+  query: string;
+  profile: string;
+  brandHint: string | null;
+  official: boolean;
+};
+
+/**
+ * One product-specific search on a store's own agent route (see feeds/agent-catalog.ts), with the
+ * crawler's rules unchanged: the bot user agent, robots.txt read first (and the endpoint's path must
+ * be allowed), the same per-store and between-store gaps, a 429 backs the store off for a day, a
+ * 401/403 or a challenge for a week, no redirect followed, and a 12-hour cache. One robots request
+ * and one search request at most.
+ */
+export async function searchStoreCatalog(opts: CatalogSearchOptions): Promise<StoreCrawlResult> {
+  const now = opts.now ?? Date.now;
+  const domain = opts.seed.domain;
+  const scheduler =
+    opts.scheduler ?? createPoliteScheduler({ perHostMs: opts.perHostMs, globalMs: opts.globalMs, now, sleep: opts.sleep });
+  const doFetch = opts.fetch ?? ((url: string, init: RequestInit) => fetch(url, init));
+  const requests: RequestLog[] = [];
+  const base: StoreCrawlResult = {
+    domain,
+    country: opts.seed.country,
+    region: opts.seed.region,
+    currency: opts.seed.currency,
+    shop_origin: null,
+    pages_fetched: 0,
+    robots_allowed: false,
+    stopped: false,
+    stop_reason: null,
+    backoff_until: null,
+    requests,
+    variants: [],
+  };
+  let endpoint: URL;
+  try {
+    endpoint = new URL(opts.route.endpoint);
+  } catch {
+    return stopped(base, "bad-endpoint", null, false);
+  }
+  if (endpoint.protocol !== "https:" || !hostMatchesDomain(endpoint.hostname, domain)) return stopped(base, "bad-endpoint", null, false);
+  const robots = await fetchResource({
+    url: `https://${endpoint.hostname}/robots.txt`,
+    key: "robots",
+    domain,
+    cacheDir: opts.cacheDir,
+    cacheTtlMs: opts.cacheTtlMs,
+    scheduler,
+    now,
+    doFetch,
+    requests,
+    cacheStatuses: [200, 404],
+  });
+  if (robots.stop) return stopped(base, robots.stopReason, robots.backoffUntil, false);
+  if (robots.status !== 200 && robots.status !== 404) {
+    const status = robots.status ?? 0;
+    const backoff =
+      status === 401 || status === 403
+        ? new Date(now() + SEVEN_DAY_BACKOFF_MS).toISOString()
+        : status >= 500
+          ? new Date(now() + BACKOFF_MS).toISOString()
+          : null;
+    return stopped(base, status === 401 || status === 403 ? "forbidden" : `http-${status || "unknown"}`, backoff, false);
+  }
+  if (robots.status === 200 && robots.body != null) {
+    const decision = decidePath(parseRobots(robots.body), endpoint.pathname);
+    if (!decision.allowed) return stopped(base, "robots", null, false);
+    if (decision.crawlDelaySec != null) {
+      const delayMs = decision.crawlDelaySec * 1000;
+      if (delayMs > MAX_CRAWL_DELAY_MS) return stopped(base, "crawl-delay", null, false);
+      scheduler.setHostInterval(domain, Math.max(opts.perHostMs, delayMs));
+    }
+  }
+  base.robots_allowed = true;
+  const digest = createHash("sha256").update(`${endpoint.toString()}\n${opts.query}`).digest("hex").slice(0, 24);
+  const got = await fetchResource({
+    url: endpoint.toString(),
+    key: `agent-${opts.route.tool}-${digest}`,
+    domain,
+    cacheDir: opts.cacheDir,
+    cacheTtlMs: opts.cacheTtlMs,
+    scheduler,
+    now,
+    doFetch,
+    requests,
+    cacheStatuses: [200],
+    post: { body: searchBody(opts.route, opts.query, opts.profile, opts.seed.currency) },
+  });
+  if (got.stop) return stopped(base, got.stopReason, got.backoffUntil, true);
+  if (got.status !== 200 || got.body == null) {
+    return stopped(base, got.status === 404 ? "not-found" : `http-${got.status ?? "unknown"}`, null, true);
+  }
+  let payload: unknown = null;
+  try {
+    payload = JSON.parse(got.body);
+  } catch {
+    // Some MCP servers answer as an event stream: take the first data line.
+    const line = got.body.split("\n").find((item) => item.startsWith("data:"));
+    try {
+      payload = line ? JSON.parse(line.slice(5)) : null;
+    } catch {
+      payload = null;
+    }
+  }
+  if (!payload || typeof payload !== "object") return stopped(base, "not-json", null, true);
+  if ((payload as { error?: unknown }).error || (payload as { result?: { isError?: unknown } }).result?.isError === true) {
+    return stopped(base, "agent-error", null, true);
+  }
+  base.shop_origin = endpoint.origin;
+  base.pages_fetched = 1;
+  base.variants = parseAgentCatalog(payload, {
+    domain,
+    fallbackCurrency: opts.seed.currency,
+    observedAt: new Date(now()).toISOString(),
+    brandHint: opts.brandHint,
+    official: opts.official,
+  });
+  return base;
+}
+
 function stopped(
   base: StoreCrawlResult,
   reason: string | null,
@@ -246,6 +370,7 @@ async function fetchResource(opts: {
   doFetch: FetchLike;
   requests: RequestLog[];
   cacheStatuses: number[];
+  post?: { body: string } | null;
 }): Promise<Fetched> {
   const file = cachePath(opts.cacheDir, opts.domain, opts.key);
   const cached = await readCache(file, opts.cacheTtlMs, opts.now());
@@ -270,6 +395,8 @@ async function fetchResource(opts: {
   const first = await request(opts, opts.url);
   if (first.stop || first.status == null) return first;
   if (![301, 302, 303, 307, 308].includes(first.status)) return first;
+  // A POST to an agent endpoint is one request: a redirect is not followed.
+  if (opts.post) return terminal(opts, first, "redirect");
 
   const location = first.location;
   if (!location) return terminal(opts, first, "redirect");
@@ -293,6 +420,7 @@ async function request(
     requests: RequestLog[];
     cacheStatuses: number[];
     url: string;
+    post?: { body: string } | null;
   },
   url: string,
 ): Promise<Fetched & { location: string | null }> {
@@ -301,10 +429,12 @@ async function request(
   try {
     const headers = new Headers();
     headers.set("User-Agent", USER_AGENT);
-    headers.set("Accept", "application/json, text/plain;q=0.9, */*;q=0.8");
+    headers.set("Accept", opts.post ? "application/json, text/event-stream" : "application/json, text/plain;q=0.9, */*;q=0.8");
+    if (opts.post) headers.set("Content-Type", "application/json");
     const response = await opts.doFetch(url, {
-      method: "GET",
+      method: opts.post ? "POST" : "GET",
       headers,
+      ...(opts.post ? { body: opts.post.body } : {}),
       redirect: "manual",
       signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
     });
@@ -372,6 +502,7 @@ async function request(
       contentType,
       body,
       mitigated: response.headers.get("cf-mitigated"),
+      agentEndpoint: Boolean(opts.post),
     });
     if (challenge) {
       return {
@@ -465,9 +596,11 @@ export function looksLikeChallenge(input: {
   contentType: string;
   body: string;
   mitigated: string | null;
+  /** A store's own agent endpoint (a JSON-RPC POST): HTML back means a challenge page. */
+  agentEndpoint?: boolean;
 }): boolean {
   const robots = input.url.includes("/robots.txt");
-  const products = input.url.includes("/products.json");
+  const products = input.url.includes("/products.json") || input.agentEndpoint === true;
   if (!robots && !products) return false;
   if (input.mitigated) return true;
   if (input.body && CHALLENGE_BODY.test(input.body.slice(0, 4000))) return true;

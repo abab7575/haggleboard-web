@@ -186,7 +186,8 @@ describe("the watcher", () => {
     for (const host of hosts) {
       expect(fetched.filter((entry) => entry.url.includes(host) && entry.url.includes("/products.json"))).toHaveLength(1);
     }
-    expect(result.summary!.stores.filter((item) => item.reason?.includes("5-store limit")).length).toBe(7);
+    // 12 ARC category stores: 2 are tried (ARC_EXPLORE_PER_REQUEST), the other 10 are not asked.
+    expect(result.summary!.stores.filter((item) => item.reason?.includes("untried category stores")).length).toBe(10);
     expect(result.summary!.stores.find((item) => item.store_domain === "brooksrunning.com")?.reason).toMatch(/no public product feed/);
     expect(web.log.filter((entry) => entry.url.includes("arcreport.ai")).length).toBeLessThanOrEqual(ARC_MAX_CALLS_PER_REQUEST);
   });
@@ -211,7 +212,7 @@ describe("the watcher", () => {
       "removed-shop.com": { shopify: true },
       "second.com": { shopify: true },
     };
-    const { deps, web, watch, store, clock } = await setup(stores, Object.keys(stores), { removed: new Set(["removed-shop.com"]) });
+    const { deps, web, watch, store, clock } = await setup(stores, Object.keys(stores), { removed: new Set(["removed-shop.com"]), arcExplore: 5 });
     const result = await watch(await postRequest(need, deps));
     const fetched = storeFetches(web.log);
     for (const entry of fetched) expect(entry.ua).toBe(USER_AGENT);

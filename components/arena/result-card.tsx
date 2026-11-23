@@ -28,6 +28,14 @@ export type ResultCardProps = {
   share?: boolean;
   /** Public page to share with the result (never a private link). */
   shareUrl?: string;
+  /** Live: "last_seen" when no store confirmed a price during the auction. Never shown as "Won". */
+  resultKind?: "won" | "last_seen";
+  /** Live: when the winning public price was seen ("confirmed today", "last seen 18 Oct, not confirmed"). */
+  priceNote?: string | null;
+  /** Live: fictional test stores took part (TEST_STORES=1 only). */
+  testStores?: boolean;
+  /** Live: how the winner won. A private offer is said as such, never shown as its list price. */
+  winnerSource?: "public_price" | "private_offer" | "store_bid" | null;
 };
 
 /** Headline words for a band, short enough for the big line on the card. */
@@ -36,6 +44,8 @@ function bandHeadline(label: string): { big: string; rest: string } {
   if (under) return { big: under[1]!, rest: `under ${under[2]}` };
   if (label === "at the best public price") return { big: "Lowest price", rest: "of the public prices. No store went under it this time." };
   if (label === "above the best public price") return { big: "Above", rest: "the best public price" };
+  if (label === "within 5% of the best public price") return { big: "Within 5%", rest: "of the best public price" };
+  if (label === "private offer") return { big: "Private offer", rest: "Only the asking agent sees the amount. No band is shown for this one." };
   return { big: "Winner", rest: label };
 }
 
@@ -53,11 +63,22 @@ export function ResultCard({
   revealedPrice,
   share = true,
   shareUrl,
+  resultKind = "won",
+  priceNote,
+  testStores = false,
+  winnerSource = null,
 }: ResultCardProps) {
   const [copied, setCopied] = useState(false);
-  const line = resultLine(savedPct, wonAtSec, perspective, winner, bandLabel);
-  const shareText = `${line}${demo ? " (HaggleBoard demo with made-up stores.)" : ""}`;
-  const headline = bandLabel ? bandHeadline(bandLabel) : null;
+  const lastSeen = resultKind === "last_seen";
+  const line = lastSeen
+    ? `Best last-seen price was at ${winner}, not confirmed today.`
+    : resultLine(savedPct, wonAtSec, perspective, winner, bandLabel);
+  const shareText = `${line}${demo ? " (HaggleBoard demo with made-up stores.)" : testStores ? " (Local test with made-up stores.)" : ""}`;
+  const headline = lastSeen
+    ? { big: "Not confirmed", rest: "Best last-seen price, not confirmed today" }
+    : bandLabel
+      ? bandHeadline(bandLabel)
+      : null;
 
   const onShare = async () => {
     try {
@@ -83,7 +104,13 @@ export function ResultCard({
             </span>
             HaggleBoard
           </span>
-          {demo ? <DemoLabel text="Demo result" /> : <span className="result-card-real">Real auction</span>}
+          {demo ? (
+            <DemoLabel text="Demo result" />
+          ) : testStores ? (
+            <span className="test-stores-label">Test stores</span>
+          ) : (
+            <span className="result-card-real">Real auction</span>
+          )}
         </div>
         {headline ? (
           <p className="result-card-pct result-card-pct--band">
@@ -103,9 +130,21 @@ export function ResultCard({
             <dd>{request}</dd>
           </div>
           <div>
-            <dt>Winner</dt>
+            <dt>{lastSeen ? "Last seen at" : "Winner"}</dt>
             <dd>{winner}</dd>
           </div>
+          {winnerSource === "private_offer" || winnerSource === "store_bid" ? (
+            <div>
+              <dt>Winning offer</dt>
+              <dd>{winnerSource === "private_offer" ? "Private offer, amount to the asker only" : "Store bid, amount to the asker only"}</dd>
+            </div>
+          ) : null}
+          {priceNote ? (
+            <div>
+              <dt>Price date</dt>
+              <dd>{priceNote}</dd>
+            </div>
+          ) : null}
           {windowSec != null ? (
             <div>
               <dt>Winning offer in</dt>
@@ -132,8 +171,8 @@ export function ResultCard({
             </div>
           ) : null}
         </dl>
-        <span className="result-card-stamp" aria-hidden="true">
-          Won
+        <span className={`result-card-stamp${lastSeen ? " result-card-stamp--unconfirmed" : ""}`} aria-hidden="true">
+          {lastSeen ? "Last seen" : "Won"}
         </span>
       </div>
       {share ? (
