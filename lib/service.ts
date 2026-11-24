@@ -98,6 +98,24 @@ export const holdingSchema = z
   })
   .strict();
 
+/**
+ * What the user has allowed the agent to do, as the agent says it. PRIVATE: kept in the log's private
+ * fields, never shown per person, and counted only as totals in /api/stats.
+ */
+export const ALLOWED_KINDS = ["ask_first", "under_limit", "just_buy"] as const;
+export type Allowed = { kind: (typeof ALLOWED_KINDS)[number]; limit?: number; currency?: string };
+export const allowedSchema = z.union([
+  z.enum(ALLOWED_KINDS).transform((kind): Allowed => ({ kind })),
+  z
+    .object({
+      kind: z.enum(ALLOWED_KINDS),
+      limit: z.number().positive().max(1_000_000).optional(),
+      currency: z.string().trim().regex(/^[A-Za-z]{3}$/).optional(),
+    })
+    .strict()
+    .refine((value) => value.kind !== "under_limit" || value.limit != null, "allowed.limit is needed with under_limit"),
+]);
+
 const needSchema = z.object({
   text: z.string().trim().max(500).optional(),
   brand: z.string().trim().max(80).optional(),
@@ -126,6 +144,7 @@ const needSchema = z.object({
   delete_token: z.string().trim().min(16).max(200).optional(),
   auction_seconds: z.number().int().min(AUCTION_MIN_SECONDS).max(AUCTION_MAX_SECONDS).optional(),
   handle: handleSchema.optional(),
+  allowed: allowedSchema.optional(),
 });
 
 const bidSchema = z.object({
@@ -199,7 +218,7 @@ export async function postRequest(input: unknown, deps: Deps) {
   if (deps.store.kind !== "unavailable") {
     try {
       const snapshot = snapshotOffers(need, await liveVariants(deps));
-      const opened = postedEvents(id, need, window, ctx, body.handle ?? null, created_at, deps.findKey ?? null);
+      const opened = postedEvents(id, need, window, ctx, body.handle ?? null, created_at, deps.findKey ?? null, (body.allowed as Allowed | undefined) ?? null);
       const offered = offerEvents(id, window, [], snapshot, now).events;
       // The request, request.posted, request.holding, and the opening offers: one transaction.
       await deps.store.saveRequest(
@@ -300,6 +319,7 @@ function postedEvents(
   handle: string | null,
   at: string,
   findKey: string | null = null,
+  allowed: Allowed | null = null,
 ): NewEvent[] {
   const pub = publicNeed(need);
   const events: NewEvent[] = [
@@ -334,6 +354,7 @@ function postedEvents(
         quantity: need.quantity,
         attributes: need.attributes,
         ...(findKey ? { find_key: findKey } : {}),
+        ...(allowed ? { allowed: { kind: allowed.kind, limit: allowed.limit ?? null, currency: allowed.currency?.toUpperCase() ?? null } } : {}),
       },
     },
   ];

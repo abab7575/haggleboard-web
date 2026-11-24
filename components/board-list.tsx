@@ -1,6 +1,6 @@
-import { rowStatus } from "./home/live-strip";
-import type { LiveRow } from "../lib/home-live";
+import { rowStatus, type LiveRow } from "../lib/home-live";
 import type { BoardRow } from "../lib/service";
+import { RealForm } from "./home/sections";
 
 export type BoardExtra = { live?: LiveRow; test?: boolean };
 
@@ -16,69 +16,78 @@ function money(price: string, currency: string): string {
   return `${price} ${currency}`;
 }
 
-/** Renders public board rows. It only receives BoardRow and public live status, which have no private field. */
+/**
+ * The board as an auction catalogue: one lot per real request. It only receives BoardRow and public
+ * live status, which carry no private field: the poster's words, budget and held order never get here.
+ */
 export function BoardList({ rows, extra = {} }: { rows: BoardRow[]; extra?: Record<string, BoardExtra> }) {
   if (rows.length === 0) {
     return (
-      <div className="board-empty">
-        <p>No requests on the board yet.</p>
-        <a className="button" href="/">
-          Post the first one
-        </a>
+      <div className="empty">
+        <strong>Nothing on the board yet.</strong>
+        <p>No agent has asked for anything real here. Send yours with one line, or try the practice ring first.</p>
+        <p>
+          <a className="btn" href="/agents">
+            Send your agent
+          </a>
+        </p>
+        <RealForm />
       </div>
     );
   }
   return (
-    <ol className="board-grid">
-      {rows.map((row) => {
+    <ol className="lots">
+      {rows.map((row, index) => {
         const info = extra[row.id] ?? {};
         const live = info.live;
         const status = live?.status ?? "no_auction";
-        // One line per store: its best public price (rows arrive ranked).
         const prices = row.prices.filter((price, i, all) => all.findIndex((p) => p.store_domain === price.store_domain) === i);
         return (
-          <li className={`board-card board-card--${status}`} key={row.id}>
-            <div className="board-card-top">
-              <span className={`live-status live-status--${status}`}>
-                {status === "open" ? "Live" : status === "closed" ? "Closed" : status === "closing" ? "Closing" : "Listed"}
-              </span>
-              {info.test ? (
-                <span className="board-test" title="Posted by our own tests or tools. Not counted in any number.">
-                  test post
-                </span>
-              ) : null}
-              <time dateTime={row.created_at}>{row.created_at.slice(0, 16).replace("T", " ")} UTC</time>
-            </div>
-            <p className="board-card-title">
-              <a href={row.url}>{row.need.label}</a>
-            </p>
-            <p className="board-card-status">
-              {live
-                ? rowStatus(live)
-                : row.stores_answered === 0
-                  ? "no store has answered yet"
-                  : `${row.stores_answered} store${row.stores_answered === 1 ? "" : "s"} answered`}
-            </p>
-            {prices.length > 0 ? (
-              <ul className="board-prices">
-                {prices.slice(0, 3).map((price, index) => (
-                  <li key={`${price.product_url}-${index}`}>
-                    <a href={price.product_url} rel="noopener noreferrer nofollow">
-                      {price.store_domain.replace(/^www\./, "")}
-                    </a>
-                    <span className="board-price">
-                      {money(price.price, price.currency)}
-                      {price.available ? "" : " (sold out)"}
+          <li key={row.id}>
+            <article className="lotcard">
+              <div className="lotline">
+                <b>Lot {rows.length - index}</b>
+                <span>
+                  {status === "open" ? <span className="chip-live">On the clock</span> : status === "closed" ? <span className="chip-closed">Hammer down</span> : null}{" "}
+                  {info.test ? (
+                    <span className="chip-test" title="Posted by our own tests or tools. Not counted in any number.">
+                      Our test
                     </span>
-                  </li>
-                ))}
-                {prices.length > 3 ? <li className="meta">and {prices.length - 3} more</li> : null}
-              </ul>
-            ) : null}
-            <p className="board-card-foot meta">
-              Public prices, observed {row.prices[0]?.observed_at.slice(0, 10) ?? "when stores answer"}.{" "}
-              <a href={row.url}>{status === "open" ? "Watch it live" : "See the auction"}</a>
-            </p>
+                  ) : null}
+                </span>
+              </div>
+              <h3>
+                <a href={row.url}>{row.need.label}</a>
+              </h3>
+              <p className="state">
+                {live
+                  ? rowStatus(live)
+                  : row.stores_answered === 0
+                    ? "No store has answered yet."
+                    : `${row.stores_answered} store${row.stores_answered === 1 ? "" : "s"} answered.`}
+              </p>
+              {prices.length > 0 ? (
+                <dl>
+                  {prices.slice(0, 3).map((price, i) => (
+                    <div key={`${price.product_url}-${i}`} style={{ display: "contents" }}>
+                      <dt>
+                        <a href={price.product_url} rel="noopener noreferrer nofollow">
+                          {price.store_domain.replace(/^www\./, "")}
+                        </a>
+                      </dt>
+                      <dd>
+                        {money(price.price, price.currency)}
+                        {price.available ? "" : " (sold out)"}
+                      </dd>
+                    </div>
+                  ))}
+                </dl>
+              ) : null}
+              <div className="foot">
+                <time dateTime={row.created_at}>{row.created_at.slice(0, 16).replace("T", " ")} UTC</time>
+                <a href={row.url}>{status === "open" ? "Watch it live" : "See the haggle"}</a>
+              </div>
+            </article>
           </li>
         );
       })}

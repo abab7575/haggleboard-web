@@ -21,6 +21,9 @@ export async function sitemapEntries(
   const entries: MetadataRoute.Sitemap = [
     { url: `${base}/`, changeFrequency: "daily" },
     { url: `${base}/board`, changeFrequency: "hourly" },
+    // The practice ring and the experiment are pages; practice rounds themselves never are listed.
+    { url: `${base}/ring`, changeFrequency: "daily" },
+    { url: `${base}/experiment`, changeFrequency: "daily" },
     ...questions.map((question) => ({ url: `${base}/q/${question.slug}`, changeFrequency: "daily" as const })),
   ];
   if (store.kind !== "unavailable") {

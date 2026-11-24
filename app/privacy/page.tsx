@@ -8,11 +8,10 @@ const mail = <a href={`mailto:${CONTACT_EMAIL}`}>{CONTACT_EMAIL}</a>;
 export default function PrivacyPage() {
   return (
     <main>
-      <section className="hero">
-        <p className="kicker">HaggleBoard</p>
+      <section className="page-head">
         <h1>Privacy (short version)</h1>
       </section>
-      <section className="panel legal">
+      <section className="section section--tight prose">
         <ul>
           <li>No accounts, no cookies for tracking, no ads, no analytics that identify you.</li>
           <li>If you post a request, we store its text, parsed fields, any order you say you already hold, and the time. Don&apos;t include names, addresses or contact details. Requests are deleted after 30 days; hidden ones too.</li>

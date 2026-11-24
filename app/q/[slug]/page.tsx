@@ -24,17 +24,18 @@ export default async function QuestionPage({ params }: { params: Promise<{ slug:
 
   return (
     <main>
-      <section className="hero">
-        <p className="kicker">Question</p>
+      <section className="page-head">
         <h1>{question.title}</h1>
         <p className="lede">
           Ranked from the public snapshot. The lowest price in a currency is first. HaggleBoard does not convert
           currencies and does not sell placement.
         </p>
       </section>
-      <OfferList offers={result.offers} omitted={result.omitted_unavailable} />
-      <p className="meta">
-        <a href="/">Back to the board</a>
+      <section className="section section--tight">
+        <OfferList offers={result.offers} omitted={result.omitted_unavailable} />
+      </section>
+      <p className="small">
+        <a href="/board">The board</a>
       </p>
     </main>
   );

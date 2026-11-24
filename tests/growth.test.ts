@@ -207,7 +207,7 @@ describe("store pages and the sitemap", () => {
     expect(urls).toContain("https://haggleboard.com/s/example-run.com");
     expect(urls).not.toContain("https://haggleboard.com/s/example-road.com");
     expect(urls).toContain("https://haggleboard.com/q/womens-asics-novablast-6-size-7");
-    expect(urls.every((url) => /^https:\/\/haggleboard\.com\/(|board|q\/[a-z0-9-]+|r\/[0-9a-f-]{36}|s\/[a-z0-9.-]+)$/.test(url))).toBe(true);
+    expect(urls.every((url) => /^https:\/\/haggleboard\.com\/(|board|ring|experiment|q\/[a-z0-9-]+|r\/[0-9a-f-]{36}|s\/[a-z0-9.-]+)$/.test(url))).toBe(true);
     await db.close();
   });
 });

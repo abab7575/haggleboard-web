@@ -1,14 +1,14 @@
 import type { Metadata } from "next";
-import { NeedForm } from "../../components/need-form";
 import { OfferList } from "../../components/offer-list";
 import { HttpError } from "../../lib/http";
 import { defaultDeps, getOffers } from "../../lib/service";
 
 export const dynamic = "force-dynamic";
-export const metadata: Metadata = { title: "Compare" };
+export const metadata: Metadata = { title: "Compare public prices", robots: { index: false, follow: false } };
 
 type Search = Record<string, string | string[] | undefined>;
 
+/** A plain price check against the public snapshot, for a server with no database. Nothing is posted. */
 export default async function ResultsPage({ searchParams }: { searchParams: Promise<Search> }) {
   const params = await searchParams;
   const value = (key: string) => {
@@ -16,57 +16,36 @@ export default async function ResultsPage({ searchParams }: { searchParams: Prom
     const first = Array.isArray(raw) ? raw[0] : raw;
     return first?.trim() || "";
   };
-  const values = {
-    text: value("text"),
-    brand: value("brand"),
-    model: value("model"),
-    gender: value("gender"),
-    size: value("size"),
-    max_price: value("max_price"),
-    currency: value("currency"),
-    region: value("region"),
-  };
-  const max = values.max_price ? Number(values.max_price) : undefined;
+  const text = value("text");
+  const size = value("size");
   let error: string | null = null;
   let offers = null as Awaited<ReturnType<typeof getOffers>> | null;
-  const hasQuery = Object.values(values).some(Boolean);
-  if (hasQuery) {
+  if (text || size) {
     try {
-      offers = await getOffers(
-        {
-          text: values.text || undefined,
-          brand: values.brand || undefined,
-          model: values.model || undefined,
-          gender: values.gender || undefined,
-          size: values.size || undefined,
-          max_price: max != null && Number.isFinite(max) ? max : undefined,
-          currency: values.currency || undefined,
-          region: values.region || undefined,
-        },
-        await defaultDeps(),
-      );
+      offers = await getOffers({ text: text || undefined, size: size || undefined }, await defaultDeps());
     } catch (caught) {
-      error = caught instanceof HttpError ? caught.message : "Could not compare that need";
+      error = caught instanceof HttpError ? caught.message : "Couldn't compare that.";
     }
   }
-
   return (
     <main>
-      <section className="hero">
-        <p className="kicker">Compare</p>
-        <h1>{values.text || "What does the agent need?"}</h1>
+      <section className="page-head">
+        <h1>{text || "Check a price."}</h1>
+        <p className="lede">Public prices from the snapshot, cheapest first. Nothing is posted and no store is asked. Checkout stays on the store&apos;s site.</p>
+        <form action="/results" method="get" className="byhand" style={{ maxWidth: 640, marginTop: 20 }}>
+          <label htmlFor="results-text">What are you after?</label>
+          <span className="field">
+            <input id="results-text" name="text" defaultValue={text} placeholder="Brooks Ghost 16 women's size 8" autoComplete="off" maxLength={200} />
+            <button className="btn" type="submit">
+              Check
+            </button>
+          </span>
+        </form>
       </section>
-      {error ? <p className="empty">{error}</p> : null}
-      {offers ? (
-        <section>
-          <div className="section-head">
-            <h2>Offers</h2>
-            <p className="meta">{offers.offers.length} shown. Checkout stays on the store.</p>
-          </div>
-          <OfferList offers={offers.offers} omitted={offers.omitted_unavailable} />
-        </section>
-      ) : null}
-      <NeedForm values={values} />
+      <section className="section section--tight">
+        {error ? <p className="body">{error}</p> : null}
+        {offers ? <OfferList offers={offers.offers} omitted={offers.omitted_unavailable} /> : null}
+      </section>
     </main>
   );
 }

@@ -26,7 +26,12 @@ export type EventType =
   | "store.notified"
   | "store.claimed"
   | "store.rule_set"
-  | "page.read";
+  | "page.read"
+  // The practice ring (lib/ring/service.ts). Never real shopping: every row has public.practice = true.
+  | "ring.opened"
+  | "ring.message"
+  | "ring.store"
+  | "ring.closed";
 
 export type Channel = "api" | "mcp" | "find" | "web" | "worker" | "service";
 

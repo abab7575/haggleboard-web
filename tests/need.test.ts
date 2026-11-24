@@ -187,6 +187,13 @@ describe("mcp tools", () => {
     const { store, deps } = await setup();
     const tools = (await mcp(deps, "tools/list", {})).result.tools!;
     for (const tool of tools) {
+      if (tool.name.startsWith("ring_")) {
+        // Practice-ring tools say what they do and that it is play money; the writes carry an example.
+        expect(tool.description).toMatch(/practice/i);
+        if (tool.name === "ring_say") expect(tool.description).toMatch(/Example: \{/);
+        expect(tool.description).not.toMatch(/—/);
+        continue;
+      }
       expect(tool.description).toMatch(/^Call this/);
       expect(tool.description).toMatch(/Example: \{/);
       expect(tool.description).not.toMatch(/—/);

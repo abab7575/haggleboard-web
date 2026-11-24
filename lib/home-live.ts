@@ -51,6 +51,21 @@ export async function liveRow(store: Store, row: { id: string; created_at: strin
   };
 }
 
+/** One line on where a real haggle stands. Public facts only: who won and a band, never an amount. */
+export function rowStatus(row: LiveRow): string {
+  const count = row.test_stores ? row.standing_words.toLowerCase() : `${row.stores} store${row.stores === 1 ? "" : "s"} in`;
+  if (row.status === "open") return `On the clock, ${Math.max(0, row.seconds_left)}s left. ${count[0]!.toUpperCase()}${count.slice(1)}.`;
+  if (row.status === "closing") return "The clock just ran out.";
+  if (row.status === "no_auction") return row.standing_words;
+  if (row.winner && row.result === "last_seen") return `Best last-seen price at ${row.winner}, not confirmed today.`;
+  if (row.winner && row.winner_source !== "public_price") {
+    const band = row.band_label && row.band_label !== "private offer" ? `, ${row.band_label}` : "";
+    return `Sold to ${row.winner} with a private offer${band}${row.test_stores ? " (test stores)" : ""}.`;
+  }
+  if (row.winner) return `Sold to ${row.winner}${row.band_label ? `, ${row.band_label}` : ""}${row.test_stores ? " (test stores)" : ""}.`;
+  return row.stores === 0 ? "Nobody bit. No store answered." : "Closed. None in stock.";
+}
+
 /** The most recent requests from outside callers, newest first. */
 export async function latestOutsideRequests(store: Store, limit = 5, now = Date.now()): Promise<LiveRow[]> {
   if (store.kind === "unavailable") return [];

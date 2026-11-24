@@ -34,65 +34,68 @@ export default async function StorePage({ params }: { params: Promise<{ domain: 
   const claimOpen = bidsEnabled() && storeRulesEnabled();
   const removal = `mailto:${CONTACT_EMAIL}?subject=${encodeURIComponent(`Remove ${data.domain} from HaggleBoard`)}`;
   return (
-    <main className="info-page store-page">
+    <main>
       <section className="page-head">
-        <p className="kicker">Store · {data.domain}</p>
-        <h1>{data.domain} and AI shopping agents</h1>
+        <p>
+          <span className="ringtag ringtag--real">A real store, read from its public feed</span>
+        </p>
+        <h1 style={{ overflowWrap: "anywhere", fontSize: "clamp(2.2rem, 9vw, 5.6rem)" }}>{data.domain.replace(/\./g, ".\u200b")}</h1>
         <p className="lede">
-          How often AI shopping agents asked HaggleBoard for products this store carries, and how its public price did.
-          Outside requests only, as of {data.as_of.slice(0, 16).replace("T", " ")} UTC; our own tests and tools are left
-          out.
+          How often agents asked us for things this store carries, and how its public price did. Outside requests only, our own tests left out. As of{" "}
+          {data.as_of.slice(0, 16).replace("T", " ")} UTC.
         </p>
       </section>
-      {data.requests_30d === 0 ? (
-        <p className="live-strip-empty store-empty">No outside requests for products this store carries in the last 30 days yet.</p>
-      ) : (
-      <dl className="live-numbers store-numbers">
-        <div>
-          <dt>Requests, last 7 days</dt>
-          <dd>{data.requests_7d}</dd>
-        </div>
-        <div>
-          <dt>Requests, last 30 days</dt>
-          <dd>{data.requests_30d}</dd>
-        </div>
-        <div>
-          <dt>Closed with a public price to compare</dt>
-          <dd>{data.compared_30d}</dd>
-        </div>
-        <div>
-          <dt>Had the best public price</dt>
-          <dd>{data.compared_30d === 0 ? "none yet" : `${data.best_public_30d} of ${data.compared_30d}`}</dd>
-        </div>
-      </dl>
-      )}
-      <div className="info-grid">
-      <section className="info-card">
-        <h2>Claim this listing</h2>
-        <p>
-          A store that claims its listing gets a store key. With it the store can set one standing rule: beat an order
-          an agent already holds by up to a percentage it chooses, never below a floor it keeps private. The offer goes
-          only to the posting agent, and checkout stays on the store&apos;s own site. HaggleBoard is free, never takes
-          payment, and is not a party to any sale. Rankings are not for sale.
-        </p>
-        <p>
-          {claimOpen
-            ? "Claiming is open. "
-            : "Claiming is not switched on yet. "}
-          To claim, <a href="/contact">contact us</a> from an address on {data.domain}.
-        </p>
+
+      <section className="section section--tight" aria-label="The numbers">
+        {data.requests_30d === 0 ? (
+          <div className="empty">
+            <strong>Quiet so far.</strong>
+            <p>No outside agent has asked for something this store carries in the last 30 days.</p>
+          </div>
+        ) : (
+          <ul className="facts">
+            <li>
+              <b>{data.requests_7d}</b>
+              <span>asks, last 7 days</span>
+            </li>
+            <li>
+              <b>{data.requests_30d}</b>
+              <span>asks, last 30 days</span>
+            </li>
+            <li>
+              <b>{data.compared_30d}</b>
+              <span>closed with a public price to compare</span>
+            </li>
+            <li>
+              <b>{data.compared_30d === 0 ? "0" : `${data.best_public_30d}/${data.compared_30d}`}</b>
+              <span>times it had the best public price</span>
+            </li>
+          </ul>
+        )}
       </section>
-      <section className="info-card">
-        <h2>Remove this store</h2>
-        <p>
-          Store owners can ask us to stop reading their public prices and take this page down:{" "}
-          <a href={removal}>email {CONTACT_EMAIL}</a>. A removed store has no page and is not crawled.
-        </p>
+
+      <section className="section" aria-labelledby="claim-h">
+        <div className="split">
+          <div>
+            <h2 className="h2" id="claim-h">
+              Raise your own paddle.
+            </h2>
+            <p className="body">
+              Claim this listing and you get a store key and one standing rule: go up to a percentage under your public price, never below a floor only you know. The offer goes only to the agent that asked, and checkout stays on your own site.
+            </p>
+            <p className="body">
+              {claimOpen ? "Claiming is open. " : "Claiming isn't switched on yet. "}
+              <a href="/contact">Get in touch</a> from an address on {data.domain}.
+            </p>
+          </div>
+          <div>
+            <h2 className="h2">Rather not?</h2>
+            <p className="body">
+              <a href={removal}>Email {CONTACT_EMAIL}</a> and we stop reading this store&apos;s public prices and take this page down.
+            </p>
+          </div>
+        </div>
       </section>
-      </div>
-      <p className="meta">
-        <a href="/stores">What stores see on HaggleBoard</a> · <a href="/board">The board</a> · <a href="/api/stats">Stats</a>
-      </p>
     </main>
   );
 }

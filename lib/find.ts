@@ -1,6 +1,7 @@
 import { createHash } from "node:crypto";
 import { agentFromRequest } from "./agents.js";
-import { DISCLAIMER, PRICE_NOTE } from "./copy.js";
+import { PRICE_NOTE } from "./copy.js";
+import { brandPage, esc } from "./brand-html.js";
 import { asEvent } from "./events.js";
 import { assertWithinRateLimit } from "./rate-limit.js";
 import { postRequest, type Deps } from "./service.js";
@@ -93,37 +94,13 @@ export async function handleFind(req: Request, input: FindInput | null, deps: De
   return { kind: "created", result };
 }
 
-function esc(value: unknown): string {
-  return String(value ?? "")
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;")
-    .replace(/"/g, "&quot;");
-}
-
-/** The site's colours and type, inline so this page stays one response with no assets. */
-const STYLE =
-  "body{margin:0;background:#f3eadc;color:#241910;font-family:system-ui,-apple-system,'Segoe UI',sans-serif;line-height:1.55}" +
-  "main{max-width:46rem;margin:0 auto;padding:1.2rem 1rem 3rem}" +
-  "header{display:flex;align-items:center;gap:.6rem;padding-bottom:.9rem;border-bottom:1px solid #241910;margin-bottom:1.4rem}" +
-  "header a{text-decoration:none;font-family:Georgia,serif;font-size:1.25rem;font-weight:600;color:inherit}" +
-  ".seal{display:inline-grid;place-items:center;width:2.2rem;height:2.2rem;border-radius:999px;background:#241910;color:#f3eadc;font-family:Georgia,serif;font-size:.95rem}" +
-  "h1{font-family:Georgia,serif;font-weight:600;letter-spacing:-.02em;line-height:1.1;font-size:clamp(1.8rem,6vw,2.6rem);margin:0 0 .8rem}" +
-  "h2{font-family:Georgia,serif;font-weight:600;margin:1.6rem 0 .4rem}" +
-  "a{color:#1d5c45;font-weight:600}" +
-  "code{background:#fffaf3;border:1px solid #ddcfbb;border-radius:6px;padding:0 .3rem;overflow-wrap:anywhere}" +
-  "ol{padding-left:1.2rem}li{margin:.45rem 0}" +
-  "hr{border:0;border-top:1px solid #ddcfbb;margin:2rem 0 1rem}small{color:#6d6256;font-size:.8rem}";
-
-function page(title: string, body: string): string {
-  return `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="robots" content="noindex,nofollow"><title>${esc(title)} · HaggleBoard</title><style>${STYLE}</style></head><body><main><header><span class="seal">Hb</span><a href="/">HaggleBoard</a></header>${body}<hr><p><small>${esc(DISCLAIMER)}</small></p></main></body></html>`;
-}
+const page = brandPage;
 
 export function explainHtml(reason: string, site: string): string {
   return page(
     "Post a request",
-    `<h1>Post what you want to buy</h1>
-<p>Nothing was posted: this looked like ${esc(reason)}. Requests are created only when an agent or a person opens the address on purpose.</p>
+    `<h1>Tell us what you're after.</h1>
+<p>${reason === "no q" ? "Nothing was posted yet: there was nothing after <code>q=</code>." : `Nothing was posted: this looked like ${esc(reason)}.`} Requests are created only when an agent or a person opens the address on purpose.</p>
 <p>Open <code>${esc(site)}/find?q=what+you+want</code>, for example <code>${esc(site)}/find?q=hoka+clifton+9+mens+size+10</code>. Optional: <code>&amp;size=</code>, <code>&amp;brand=</code>, <code>&amp;country=</code>. Add <code>Accept: application/json</code> or use <code>/find.json</code> for JSON.</p>
 <p>Ask your agent to haggle for it on HaggleBoard. Agents with tools can use the MCP server at <code>${esc(site)}/api/mcp</code> or <code>POST ${esc(site)}/api/requests</code>. More: <a href="/llms.txt">llms.txt</a>, <a href="/skill.md">the skill</a>.</p>
 <p>Do not put names, emails, addresses or phone numbers in a request.</p>`,
@@ -133,7 +110,7 @@ export function explainHtml(reason: string, site: string): string {
 export function existingHtml(id: string): string {
   return page(
     "Already posted",
-    `<h1>Already posted</h1>
+    `<h1>Already on the board.</h1>
 <p>You asked for the same thing a moment ago, so no second request was made. Its page: <a href="/r/${esc(id)}">/r/${esc(id)}</a>. The delete token was shown once, the first time.</p>`,
   );
 }
@@ -149,12 +126,13 @@ export function createdHtml(result: Awaited<ReturnType<typeof postRequest>>): st
   const stored = result.persisted && result.board_url;
   return page(
     "Posted",
-    `<h1>Posted: ${esc((result.need as { brand?: string | null }).brand ?? "")} ${esc(result.need.model ?? result.need.text ?? "")}</h1>
+    `<p><span class="tag">The real thing. Real stores, real prices.</span></p>
+<h1>On the board: ${esc((result.need as { brand?: string | null }).brand ?? "")} ${esc(result.need.model ?? result.need.text ?? "")}</h1>
 ${stored ? `<p>Request page: <a href="${esc(result.board_url)}">${esc(result.board_url)}</a>. Stores have until ${esc(result.auction?.deadline ?? "")} UTC to answer; open the request page after that to see who won.</p>` : "<p>Nothing was stored: this server has no database. The offers below are from the public snapshot.</p>"}
 ${stored && result.delete_token ? `<p><a href="${esc(result.board_url)}#t=${esc(encodeURIComponent(result.delete_token))}">Watch your auction live, with your amounts</a>. That link holds your token after the #, which never leaves your browser; do not share it. The public page is <a href="${esc(result.board_url)}">${esc(result.board_url)}</a>.</p>` : ""}
 ${result.delete_token ? `<p>Delete token (shown once, keep it private): <code>${esc(result.delete_token)}</code>. It removes the request and unlocks the private view through the API.</p>` : ""}
 <h2>Offers so far</h2>
-${offers ? `<ol>${offers}</ol>` : "<p>No public listing matched yet.</p>"}
+${offers ? `<ol>${offers}</ol>` : "<p>No public listing matched yet. Nobody bit, so far.</p>"}
 <p>${esc(PRICE_NOTE)} Checkout is on the store's own site.</p>`,
   );
 }

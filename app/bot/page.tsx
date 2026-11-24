@@ -6,14 +6,13 @@ export const metadata: Metadata = { title: "Crawler" };
 export default function BotPage() {
   return (
     <main>
-      <section className="hero">
-        <p className="kicker">HaggleBoard</p>
+      <section className="page-head">
         <h1>How the crawler identifies itself</h1>
         <p className="lede">
           HaggleBoard reads public Shopify product feeds. It is not affiliated with any store or brand. {PRICE_NOTE}
         </p>
       </section>
-      <section className="panel">
+      <section className="section section--tight prose">
         <h2>User-Agent</h2>
         <p>
           <code>{USER_AGENT}</code>

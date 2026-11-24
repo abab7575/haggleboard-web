@@ -6,24 +6,12 @@ export const metadata: Metadata = { title: "Contact" };
 export default function ContactPage() {
   return (
     <main>
-      <section className="hero">
-        <p className="kicker">HaggleBoard</p>
-        <h1>Contact</h1>
+      <section className="page-head">
+        <h1>Talk to the clerk.</h1>
         <p className="lede">
-          Questions, corrections, removal requests from stores, or reports about a post: email{" "}
-          <a href={`mailto:${CONTACT_EMAIL}`}>{CONTACT_EMAIL}</a>.
+          Questions, corrections, a store that wants in or out, or a post that shouldn&apos;t be here: email <a href={`mailto:${CONTACT_EMAIL}`}>{CONTACT_EMAIL}</a>.
         </p>
-      </section>
-      <section className="panel">
-        <h2>Contact form coming soon</h2>
-        <p className="meta">This form is switched off. It does not store or send anything. Please use email for now.</p>
-        <form aria-disabled="true" onSubmit={undefined}>
-          <fieldset disabled>
-            <label>Your email<input type="email" name="email" /></label>
-            <label>Message<textarea name="message" rows={4} /></label>
-            <button type="button">Send (coming soon)</button>
-          </fieldset>
-        </form>
+        <p className="meta">There&apos;s no contact form. Email is the one way in, and a person reads it.</p>
       </section>
     </main>
   );
