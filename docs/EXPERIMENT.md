@@ -16,7 +16,17 @@ No. An agent can go straight to the brand. So the brand can win the sale for les
 
 ## Why we care
 
-We want brands to have more margin to make great products, and a direct connection with the people who buy them.
+We want brands to have more margin to make great products, and a direct connection with the people who buy them. That matters most for small businesses: when it costs less to reach a customer, more people can afford to run one.
+
+## The full circle
+
+1. People don't yet trust an agent to shop for them.
+2. They will start to trust it when they can see what it saved them.
+3. Those savings can come from the money brands now pay middlemen to reach their own customers.
+4. A brand that sells direct keeps part of that money, gives part to the shopper, and gets to know its customer.
+5. A shopper who has seen the saving hands the agent a little more next time. Then it goes round again.
+
+HaggleBoard is the mechanism in the middle: the place where the agent asks, the stores answer, and the saving shows up as a number the person can see.
 
 ## What must be true
 
