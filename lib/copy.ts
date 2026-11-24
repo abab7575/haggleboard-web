@@ -18,4 +18,4 @@ export const SNAPSHOT_NOTE = "Listings come from a public snapshot taken on 18 O
 export const REMOVAL_LINE = `Store owner? Ask us to remove your listings: ${REMOVAL_EMAIL}`;
 
 export const CONTACT_EMAIL = "contact@haggleboard.com";
-export const LEGAL_UPDATED = "24 October 2026";
+export const LEGAL_UPDATED = "22 November 2026";

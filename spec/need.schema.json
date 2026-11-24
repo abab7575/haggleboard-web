@@ -2,18 +2,48 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://haggleboard.com/spec/need.schema.json",
   "title": "Need",
+  "description": "What an agent posts. Any product. Text alone is enough; a price is optional. Fields marked private are shown only to the posting agent (and, later, to stores that carry the item), never on the public board.",
   "type": "object",
   "additionalProperties": false,
+  "anyOf": [
+    { "required": ["text"] },
+    { "required": ["brand"] },
+    { "required": ["model"] },
+    { "required": ["gtin"] }
+  ],
   "properties": {
-    "text": { "type": "string", "maxLength": 500 },
+    "text": { "type": "string", "maxLength": 500, "description": "Private. What the user wants, in plain words." },
     "brand": { "type": "string", "maxLength": 80 },
     "model": { "type": "string", "maxLength": 120 },
+    "gtin": { "type": "string", "pattern": "^[0-9 -]{8,20}$", "description": "Barcode: GTIN-8, UPC-A, EAN-13 or GTIN-14 with a valid check digit." },
     "gender": { "enum": ["women", "men", "unisex", "kids"] },
     "size": { "type": "string", "maxLength": 32 },
-    "max_price": { "type": "number", "exclusiveMinimum": 0, "description": "Inclusive maximum in major units. Free text 'under 130' is stricter: the price must be below 130." },
+    "color": { "type": "string", "maxLength": 60 },
+    "attributes": {
+      "type": "object",
+      "maxProperties": 10,
+      "additionalProperties": { "type": "string", "maxLength": 80 },
+      "description": "Private. Other variant details such as width or storage."
+    },
+    "quantity": { "type": "integer", "minimum": 1, "maximum": 1000 },
+    "category": { "type": "string", "maxLength": 80 },
+    "max_price": { "type": "number", "exclusiveMinimum": 0, "description": "Private. Inclusive maximum in major units. Free text 'under 130' is stricter: the price must be below 130." },
     "currency": { "type": "string", "minLength": 3, "maxLength": 3 },
-    "region": { "type": "string" },
-    "country": { "type": "string" },
+    "region": { "type": "string", "description": "Private." },
+    "country": { "type": "string", "description": "Private." },
+    "holding": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["price", "currency"],
+      "description": "Private. An order the shopper already holds elsewhere: the number a store has to beat.",
+      "properties": {
+        "seller": { "type": "string", "maxLength": 120 },
+        "price": { "type": "number", "exclusiveMinimum": 0, "description": "Total for the quantity in this need, in major units." },
+        "currency": { "type": "string", "pattern": "^[A-Za-z]{3}$" },
+        "delivered": { "type": "boolean", "description": "True when the price already includes delivery." },
+        "delivery_by": { "type": "string", "format": "date" }
+      }
+    },
     "limit": { "type": "integer", "minimum": 1, "maximum": 50 }
   }
 }

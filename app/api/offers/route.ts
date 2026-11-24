@@ -3,6 +3,7 @@ import path from "node:path";
 import { assertWithinRateLimit } from "../../../lib/rate-limit";
 import { emptyOptions, errorResponse, json, readJson, readStoreKey } from "../../../lib/http";
 import { bidsEnabled } from "../../../lib/keys";
+import { eventContext } from "../../../lib/events";
 import { defaultDeps, submitBid } from "../../../lib/service";
 
 export const runtime = "nodejs";
@@ -13,7 +14,7 @@ export async function POST(req: Request) {
     const deps = await defaultDeps();
     await assertWithinRateLimit(req, deps.store);
     const body = await readJson(req);
-    const result = await submitBid(body, readStoreKey(req.headers), deps);
+    const result = await submitBid(body, readStoreKey(req.headers), { ...deps, context: eventContext(req, "api") });
     return json(result, 201);
   } catch (error) {
     return errorResponse(error);

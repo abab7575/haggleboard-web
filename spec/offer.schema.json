@@ -3,29 +3,158 @@
   "$id": "https://haggleboard.com/spec/offer.schema.json",
   "title": "Offer",
   "type": "object",
-  "required": ["store_domain", "price", "currency", "product_url", "source", "checkout"],
+  "required": [
+    "store_domain",
+    "price",
+    "currency",
+    "product_url",
+    "source",
+    "checkout"
+  ],
   "properties": {
-    "store_domain": { "type": "string" },
-    "brand": { "type": "string" },
-    "model": { "type": "string" },
-    "title": { "type": "string" },
-    "gender": { "enum": ["women", "men", "unisex", "kids", "unknown"] },
-    "size": { "type": ["string", "null"] },
-    "color": { "type": ["string", "null"] },
-    "available": { "type": "boolean" },
-    "price": { "type": "string" },
-    "price_cents": { "type": "integer" },
-    "compare_at_price": { "type": ["string", "null"] },
-    "compare_at_cents": { "type": ["integer", "null"] },
-    "currency": { "type": "string" },
-    "product_url": { "type": "string", "format": "uri" },
-    "source": { "enum": ["feed", "bid"] },
-    "observed_at": { "type": "string" },
-    "shipping": { "type": ["string", "null"] },
-    "delivery_days": { "type": ["integer", "null"] },
-    "returns_days": { "type": ["integer", "null"] },
-    "note": { "type": ["string", "null"] },
-    "checkout": { "const": "store_site" },
-    "verified": { "type": ["boolean", "null"] }
+    "store_domain": {
+      "type": "string"
+    },
+    "brand": {
+      "type": "string"
+    },
+    "model": {
+      "type": "string"
+    },
+    "title": {
+      "type": "string"
+    },
+    "gender": {
+      "enum": [
+        "women",
+        "men",
+        "unisex",
+        "kids",
+        "unknown"
+      ]
+    },
+    "size": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "color": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "available": {
+      "type": "boolean"
+    },
+    "price": {
+      "type": "string"
+    },
+    "price_cents": {
+      "type": "integer"
+    },
+    "compare_at_price": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "compare_at_cents": {
+      "type": [
+        "integer",
+        "null"
+      ]
+    },
+    "currency": {
+      "type": "string"
+    },
+    "product_url": {
+      "type": "string",
+      "format": "uri"
+    },
+    "source": {
+      "enum": [
+        "feed",
+        "bid"
+      ]
+    },
+    "observed_at": {
+      "type": "string"
+    },
+    "shipping": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "delivery_days": {
+      "type": [
+        "integer",
+        "null"
+      ]
+    },
+    "returns_days": {
+      "type": [
+        "integer",
+        "null"
+      ]
+    },
+    "note": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "checkout": {
+      "const": "store_site"
+    },
+    "verified": {
+      "type": [
+        "boolean",
+        "null"
+      ]
+    },
+    "vs_holding": {
+      "type": "object",
+      "description": "Private. Only in the response to the posting agent, when the need has a holding.",
+      "properties": {
+        "beats": {
+          "type": [
+            "boolean",
+            "null"
+          ]
+        },
+        "by_cents": {
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "by": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "currency": {
+          "type": "string"
+        },
+        "note": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      }
+    },
+    "expires_at": {
+      "type": "string",
+      "description": "Private offers under a store rule only: when the offer lapses. Poster only."
+    },
+    "hbp": {
+      "type": "object",
+      "description": "Private offers under a store rule only: an unsigned message shaped like the HaggleBoard Protocol v0.1 offer. Poster only."
+    }
   }
 }

@@ -9,11 +9,15 @@ export class StoreUnavailableError extends Error {
   }
 }
 
+/** Where a request came from. Only "outside" requests can ever queue a store notification. */
+export type RequestOrigin = "outside" | "test" | "internal";
+
 export type RequestRow = {
   id: string;
   need_json: string;
   created_at: string;
   delete_token_hmac: string | null;
+  origin?: RequestOrigin;
 };
 export type BidRow = {
   id: string;
@@ -44,9 +48,13 @@ export type VariantRow = {
   observed_at: string;
 };
 
+/** One SQL statement with ? placeholders and its parameters. */
+export type Statement = [query: string, params: unknown[]];
+
 export type Store = {
   kind: "sqlite" | "postgres" | "pglite" | "unavailable";
-  saveRequest: (row: RequestRow) => Promise<void>;
+  /** Upserts the request and runs `also` (its events) in the same transaction. */
+  saveRequest: (row: RequestRow, also?: Statement[]) => Promise<void>;
   getRequest: (id: string) => Promise<RequestRow | null>;
   listRequests: (limit: number) => Promise<RequestRow[]>;
   saveBid: (row: BidRow & { key_hash: string }) => Promise<void>;
@@ -66,6 +74,11 @@ export type Store = {
   listVariants: () => Promise<CatalogVariant[]>;
   countVariants: () => Promise<number>;
   latestObserved: () => Promise<string | null>;
+  /** Plain SQL with ? placeholders, for the watcher tables (lib/watch-store.ts). */
+  exec: (query: string, params?: unknown[]) => Promise<void>;
+  /** Runs every statement in one transaction: all of them or none. Events ride along with the action that caused them. */
+  batch: (statements: Statement[]) => Promise<void>;
+  select: (query: string, params?: unknown[]) => Promise<Record<string, unknown>[]>;
   close: () => Promise<void>;
 };
 
@@ -119,6 +132,67 @@ const STATEMENTS = [
     count INTEGER NOT NULL,
     PRIMARY KEY (ip_hash, window_key)
   )`,
+  // Watcher (PR 2). One run per request; offers it found; per-store backoff and last fetch.
+  `CREATE TABLE IF NOT EXISTS watch_runs (
+    request_id TEXT PRIMARY KEY,
+    status TEXT NOT NULL,
+    started_at TEXT NOT NULL,
+    finished_at TEXT,
+    summary_json TEXT
+  )`,
+  `CREATE TABLE IF NOT EXISTS watch_offers (
+    id TEXT PRIMARY KEY,
+    request_id TEXT NOT NULL,
+    store_domain TEXT NOT NULL,
+    variant_json TEXT NOT NULL,
+    observed_at TEXT NOT NULL
+  )`,
+  `CREATE INDEX IF NOT EXISTS idx_watch_offers_request ON watch_offers (request_id)`,
+  `CREATE TABLE IF NOT EXISTS store_fetch_state (
+    store_domain TEXT PRIMARY KEY,
+    last_fetch_at TEXT,
+    backoff_until TEXT,
+    backoff_reason TEXT
+  )`,
+  // Store side, off by default. A claimed store's standing rule; its floor never leaves this table.
+  `CREATE TABLE IF NOT EXISTS store_rules (
+    store_domain TEXT PRIMARY KEY,
+    rule_json TEXT NOT NULL,
+    created_at TEXT NOT NULL
+  )`,
+  `CREATE TABLE IF NOT EXISTS private_offers (
+    id TEXT PRIMARY KEY,
+    request_id TEXT NOT NULL,
+    store_domain TEXT NOT NULL,
+    offer_json TEXT NOT NULL,
+    created_at TEXT NOT NULL,
+    expires_at TEXT NOT NULL
+  )`,
+  // Notify-store hook, off by default and with no sending code. One row per store, ever.
+  `CREATE TABLE IF NOT EXISTS store_notifications (
+    store_domain TEXT PRIMARY KEY,
+    request_id TEXT NOT NULL,
+    status TEXT NOT NULL,
+    created_at TEXT NOT NULL
+  )`,
+  // The event log (docs/DATA.md). Append-only: rows are never updated, except that the purge clears
+  // the hashed caller and free-text outcome reasons after RETENTION_DAYS. See lib/events.ts.
+  `CREATE TABLE IF NOT EXISTS events (
+    id TEXT PRIMARY KEY,
+    at TEXT NOT NULL,
+    type TEXT NOT NULL,
+    request_id TEXT,
+    store_domain TEXT,
+    agent_class TEXT NOT NULL,
+    internal INTEGER NOT NULL,
+    public TEXT NOT NULL,
+    private TEXT NOT NULL,
+    caller_hash TEXT
+  )`,
+  `CREATE INDEX IF NOT EXISTS idx_events_request ON events (request_id)`,
+  `CREATE INDEX IF NOT EXISTS idx_events_type ON events (type)`,
+  `CREATE INDEX IF NOT EXISTS idx_events_at ON events (at)`,
+  `CREATE INDEX IF NOT EXISTS idx_events_store ON events (store_domain)`,
 ];
 
 export const RETENTION_DAYS = 30;
@@ -130,7 +204,13 @@ export function purgePlan(now = Date.now()): Array<[string, unknown[]]> {
     ["DELETE FROM reports WHERE created_at < ?", [cutoff]],
     ["DELETE FROM reports WHERE request_id IN (SELECT id FROM requests WHERE created_at < ?)", [cutoff]],
     ["DELETE FROM bids WHERE request_id IN (SELECT id FROM requests WHERE created_at < ?)", [cutoff]],
+    ["DELETE FROM watch_offers WHERE request_id IN (SELECT id FROM requests WHERE created_at < ?)", [cutoff]],
+    ["DELETE FROM watch_runs WHERE request_id IN (SELECT id FROM requests WHERE created_at < ?)", [cutoff]],
+    ["DELETE FROM private_offers WHERE request_id IN (SELECT id FROM requests WHERE created_at < ?)", [cutoff]],
     ["DELETE FROM requests WHERE created_at < ?", [cutoff]],
+    // Events stay (structured, no free text, no IP). The hashed caller and free-text reasons go.
+    ["UPDATE events SET caller_hash = NULL WHERE at < ? AND caller_hash IS NOT NULL", [cutoff]],
+    ["UPDATE events SET private = '{}' WHERE type = 'outcome.reported' AND at < ? AND private <> '{}'", [cutoff]],
     ["DELETE FROM rate_hits WHERE window_key LIKE 'd:%' AND CAST(substr(window_key, 3) AS BIGINT) < ?", [Math.floor(now / DAY) - RETENTION_DAYS]],
     ["DELETE FROM rate_hits WHERE window_key LIKE 'm:%' AND CAST(substr(window_key, 3) AS BIGINT) < ?", [Math.floor((now - RETENTION_DAYS * DAY) / 60_000)]],
   ];
@@ -151,14 +231,19 @@ ON CONFLICT(id) DO UPDATE SET
   variant_json = excluded.variant_json,
   observed_at = excluded.observed_at`;
 
-const UPSERT_REQUEST = `INSERT INTO requests (id, need_json, created_at, delete_token_hmac) VALUES (?, ?, ?, ?)
+const UPSERT_REQUEST = `INSERT INTO requests (id, need_json, created_at, delete_token_hmac, origin) VALUES (?, ?, ?, ?, ?)
 ON CONFLICT(id) DO UPDATE SET
   need_json = excluded.need_json,
   created_at = excluded.created_at,
   delete_token_hmac = COALESCE(requests.delete_token_hmac, excluded.delete_token_hmac)`;
 
-const SELECT_REQUEST = `SELECT id, need_json, created_at, delete_token_hmac FROM requests WHERE id = ? AND hidden_at IS NULL`;
-const LIST_REQUESTS = `SELECT id, need_json, created_at, delete_token_hmac FROM requests WHERE hidden_at IS NULL ORDER BY created_at DESC LIMIT ?`;
+/** Hidden requests and requests past RETENTION_DAYS are never read back, even before the purge runs. */
+const SELECT_REQUEST = `SELECT id, need_json, created_at, delete_token_hmac, origin FROM requests WHERE id = ? AND hidden_at IS NULL AND created_at >= ?`;
+const LIST_REQUESTS = `SELECT id, need_json, created_at, delete_token_hmac, origin FROM requests WHERE hidden_at IS NULL AND created_at >= ? ORDER BY created_at DESC LIMIT ?`;
+
+function retentionCutoff(now = Date.now()): string {
+  return new Date(now - RETENTION_DAYS * DAY).toISOString();
+}
 const HIDE_REQUEST = `UPDATE requests SET hidden_at = ?, hidden_by = ? WHERE id = ? AND hidden_at IS NULL`;
 const COUNT_AUTO_HIDES = `SELECT COUNT(*) AS n FROM requests WHERE hidden_by = 'reports' AND hidden_at >= ?`;
 const COUNT_REPORTERS = `SELECT COUNT(DISTINCT ip_hash) AS n FROM reports WHERE request_id = ?`;
@@ -213,6 +298,15 @@ export function unavailableStore(): Store {
     },
     async getStoreKey() {
       return null;
+    },
+    async exec() {
+      throw new StoreUnavailableError();
+    },
+    async batch() {
+      throw new StoreUnavailableError();
+    },
+    async select() {
+      return [];
     },
     async hideRequest() {
       throw new StoreUnavailableError();
@@ -288,21 +382,34 @@ export async function openSqlite(filename: string): Promise<Store> {
   };
   const all = (query: string, params: unknown[] = []) =>
     db.prepare(query).all(...(params as never[])) as Record<string, unknown>[];
+  // better-sqlite3 is synchronous, so nothing else can run between these statements.
+  const runBatch = db.transaction((statements: Statement[]) => {
+    for (const [query, params] of statements) run(query, params);
+  });
 
   return {
     kind: "sqlite",
     async purgeExpired(now) {
       for (const [query, params] of purgePlan(now)) run(query, params);
     },
-    async saveRequest(row) {
+    async saveRequest(row, also = []) {
       for (const [query, params] of purgePlan()) run(query, params);
-      run(UPSERT_REQUEST, [row.id, row.need_json, row.created_at, row.delete_token_hmac]);
+      runBatch([[UPSERT_REQUEST, requestParams(row)], ...also]);
+    },
+    async exec(query, params = []) {
+      run(query, params);
+    },
+    async batch(statements) {
+      runBatch(statements);
+    },
+    async select(query, params = []) {
+      return all(query, params);
     },
     async getRequest(id) {
-      return oneRequest(all(SELECT_REQUEST, [id]));
+      return oneRequest(all(SELECT_REQUEST, [id, retentionCutoff()]));
     },
     async listRequests(limit) {
-      return all(LIST_REQUESTS, [limit]).map(asRequest);
+      return all(LIST_REQUESTS, [retentionCutoff(), limit]).map(asRequest);
     },
     async saveBid(row) {
       run(UPSERT_BID, [row.id, row.request_id, row.store_domain, row.key_hash, row.bid_json, row.created_at]);
@@ -375,6 +482,7 @@ async function migratePg(exec: (s: string) => Promise<unknown>) {
   await exec("ALTER TABLE requests ADD COLUMN IF NOT EXISTS hidden_at TEXT");
   await exec("ALTER TABLE requests ADD COLUMN IF NOT EXISTS hidden_by TEXT");
   await exec("ALTER TABLE requests ADD COLUMN IF NOT EXISTS delete_token_hmac TEXT");
+  await exec("ALTER TABLE requests ADD COLUMN IF NOT EXISTS origin TEXT");
 }
 
 async function openPostgres(url: string): Promise<Store> {
@@ -415,15 +523,29 @@ function pgStore(kind: "postgres" | "pglite", { q, tx, end }: PgRunner): Store {
     async purgeExpired(now) {
       for (const [query, params] of purgePlan(now)) await q(query, params);
     },
-    async saveRequest(row) {
+    async saveRequest(row, also = []) {
       for (const [query, params] of purgePlan()) await q(query, params);
-      await q(UPSERT_REQUEST, [row.id, row.need_json, row.created_at, row.delete_token_hmac]);
+      await tx(async (run) => {
+        for (const [query, params] of [[UPSERT_REQUEST, requestParams(row)] as Statement, ...also]) await run(query, params);
+      });
+    },
+    async exec(query, params = []) {
+      await q(query, params);
+    },
+    async batch(statements) {
+      if (statements.length === 0) return;
+      await tx(async (run) => {
+        for (const [query, params] of statements) await run(query, params);
+      });
+    },
+    async select(query, params = []) {
+      return q(query, params);
     },
     async getRequest(id) {
-      return oneRequest(await q(SELECT_REQUEST, [id]));
+      return oneRequest(await q(SELECT_REQUEST, [id, retentionCutoff()]));
     },
     async listRequests(limit) {
-      return (await q(LIST_REQUESTS, [limit])).map(asRequest);
+      return (await q(LIST_REQUESTS, [retentionCutoff(), limit])).map(asRequest);
     },
     async saveBid(row) {
       await q(UPSERT_BID, [row.id, row.request_id, row.store_domain, row.key_hash, row.bid_json, row.created_at]);
@@ -513,6 +635,10 @@ function variantParams(row: VariantRow): unknown[] {
   ];
 }
 
+function requestParams(row: RequestRow): unknown[] {
+  return [row.id, row.need_json, row.created_at, row.delete_token_hmac, row.origin ?? "outside"];
+}
+
 function oneRequest(rows: Record<string, unknown>[]): RequestRow | null {
   const row = rows[0];
   return row ? asRequest(row) : null;
@@ -524,6 +650,7 @@ function asRequest(row: Record<string, unknown>): RequestRow {
     need_json: String(row.need_json),
     created_at: String(row.created_at),
     delete_token_hmac: row.delete_token_hmac == null ? null : String(row.delete_token_hmac),
+    origin: row.origin === "test" || row.origin === "internal" ? row.origin : "outside",
   };
 }
 
@@ -532,6 +659,7 @@ function migrateSqliteRequests(db: { prepare: (sql: string) => { all: () => { na
   if (!names.has("hidden_at")) db.exec("ALTER TABLE requests ADD COLUMN hidden_at TEXT");
   if (!names.has("hidden_by")) db.exec("ALTER TABLE requests ADD COLUMN hidden_by TEXT");
   if (!names.has("delete_token_hmac")) db.exec("ALTER TABLE requests ADD COLUMN delete_token_hmac TEXT");
+  if (!names.has("origin")) db.exec("ALTER TABLE requests ADD COLUMN origin TEXT");
 }
 
 function asBid(row: Record<string, unknown>): BidRow {

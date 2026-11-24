@@ -15,7 +15,7 @@ export type CorsMode = "read" | "none";
 const READ_CORS: Record<string, string> = {
   "access-control-allow-origin": "*",
   "access-control-allow-methods": "GET, OPTIONS",
-  "access-control-allow-headers": "content-type, accept, mcp-protocol-version, mcp-session-id",
+  "access-control-allow-headers": "content-type, accept, mcp-protocol-version, mcp-session-id, x-haggleboard-delete-token",
 };
 
 export function json(

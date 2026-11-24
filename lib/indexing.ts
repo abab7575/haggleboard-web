@@ -11,7 +11,10 @@ export function indexingAllowed(env: NodeJS.ProcessEnv = process.env): boolean {
 
 export function robotsDocument(env: NodeJS.ProcessEnv = process.env): MetadataRoute.Robots {
   return indexingAllowed(env)
-    ? { rules: [{ userAgent: "*", allow: "/" }] }
+    ? {
+        rules: [{ userAgent: "*", allow: "/", disallow: ["/find", "/find.json", "/ring?"] }],
+        sitemap: `${(env.SITE_URL?.trim() || "https://haggleboard.com").replace(/\/$/, "")}/sitemap.xml`,
+      }
     : { rules: [{ userAgent: "*", disallow: "/" }] };
 }
 
